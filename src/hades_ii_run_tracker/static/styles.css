@@ -109,6 +109,7 @@ body::before {
 }
 
 label,
+.field-label,
 fieldset {
     display: grid;
     gap: 0.45rem;
@@ -142,6 +143,80 @@ textarea {
 
 textarea {
     resize: vertical;
+}
+
+.asset-select {
+    position: relative;
+}
+
+.asset-select-trigger,
+.asset-select-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    border: 1px solid rgba(214, 169, 76, 0.24);
+    border-radius: 12px;
+    padding: 0.65rem 0.8rem;
+    color: var(--text);
+    background: rgba(8, 6, 10, 0.7);
+    font: inherit;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-align: left;
+    text-transform: none;
+}
+
+.asset-select-trigger > span:first-child,
+.asset-select-option {
+    gap: 0.65rem;
+}
+
+.asset-select-trigger > span:first-child {
+    display: inline-flex;
+    align-items: center;
+}
+
+.asset-select-caret {
+    color: var(--gold);
+    font-size: 0.8rem;
+}
+
+.asset-select-menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    left: 0;
+    z-index: 5;
+    display: none;
+    max-height: 18rem;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.35rem;
+    background: #17101a;
+    box-shadow: 0 18px 40px var(--shadow);
+}
+
+.asset-select.open .asset-select-menu {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.asset-select-option {
+    justify-content: flex-start;
+    border-color: transparent;
+    cursor: pointer;
+}
+
+.asset-select-option:hover,
+.asset-select-option:focus {
+    border-color: rgba(214, 169, 76, 0.35);
+    background: rgba(214, 169, 76, 0.1);
+}
+
+.asset-select-empty {
+    color: var(--muted);
 }
 
 button {
@@ -182,6 +257,7 @@ button:disabled {
 }
 
 .boon-icon,
+.asset-option-icon,
 .pill-icon,
 .inline-icon {
     flex: 0 0 auto;
@@ -189,6 +265,11 @@ button:disabled {
     height: 1.5rem;
     object-fit: contain;
     filter: drop-shadow(0 0 0.35rem rgba(214, 169, 76, 0.25));
+}
+
+.asset-option-icon {
+    width: 2rem;
+    height: 2rem;
 }
 
 .inline-icon {

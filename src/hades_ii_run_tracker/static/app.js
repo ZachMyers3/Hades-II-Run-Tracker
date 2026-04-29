@@ -9,6 +9,7 @@ const boonByName = new Map();
 
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("run-form").addEventListener("submit", submitRun);
+    document.addEventListener("click", () => closeAssetPickers());
     loadDashboard();
 });
 
@@ -44,16 +45,27 @@ async function loadDashboard() {
 }
 
 function renderForm(config) {
-    const sideSelect = document.getElementById("side");
-    sideSelect.innerHTML = config.sides
-        .map((side) => option(side.id, side.label))
-        .join("");
-
-    const weaponSelect = document.getElementById("weapon");
-    weaponSelect.innerHTML = [
-        '<option value="">No weapon selected</option>',
-        ...config.weapons.map((weapon) => option(weapon.name, weapon.name)),
-    ].join("");
+    renderAssetPicker({
+        pickerId: "side-picker",
+        inputId: "side",
+        selectedId: "side-selected",
+        options: config.sides.map((side) => ({
+            value: side.id,
+            label: side.label,
+        })),
+        emptyLabel: null,
+    });
+    renderAssetPicker({
+        pickerId: "weapon-picker",
+        inputId: "weapon",
+        selectedId: "weapon-selected",
+        options: config.weapons.map((weapon) => ({
+            value: weapon.name,
+            label: weapon.name,
+            image_url: weapon.image_url,
+        })),
+        emptyLabel: "No weapon selected",
+    });
 
     const boons = document.getElementById("boons");
     boons.innerHTML = config.boons
@@ -136,7 +148,7 @@ async function submitRun(event) {
     event.preventDefault();
 
     const form = event.currentTarget;
-    const button = form.querySelector("button");
+    const button = form.querySelector('button[type="submit"]');
     const payload = {
         access_code: document.getElementById("access-code").value,
         side: document.getElementById("side").value,
@@ -164,12 +176,134 @@ async function submitRun(event) {
 
         await loadDashboard();
         form.reset();
+        setSelectedAsset("side", "side-selected", getSideOptions(), getSideOptions()[0].value);
+        setSelectedAsset("weapon", "weapon-selected", getWeaponOptions(), "");
         setStatus("Victory recorded.", "success");
     } catch (error) {
         setStatus(error.message, "error");
     } finally {
         button.disabled = false;
     }
+}
+
+function renderAssetPicker({
+    pickerId,
+    inputId,
+    selectedId,
+    options,
+    emptyLabel,
+}) {
+    const picker = document.getElementById(pickerId);
+    const currentValue =
+        document.getElementById(inputId).value ||
+        (emptyLabel === null ? options[0]?.value || "" : "");
+    const allOptions =
+        emptyLabel === null
+            ? options
+            : [{ value: "", label: emptyLabel }, ...options];
+
+    picker.innerHTML = `
+        <button
+            class="asset-select-trigger"
+            type="button"
+            aria-expanded="false"
+            aria-haspopup="listbox"
+        >
+            <span id="${selectedId}"></span>
+            <span class="asset-select-caret">v</span>
+        </button>
+        <div class="asset-select-menu" role="listbox">
+            ${allOptions
+                .map((optionData) => assetPickerOption(optionData))
+                .join("")}
+        </div>
+    `;
+
+    picker
+        .querySelector(".asset-select-trigger")
+        .addEventListener("click", (event) => toggleAssetPicker(event, picker));
+
+    picker.querySelectorAll(".asset-select-option").forEach((item) => {
+        item.addEventListener("click", () => {
+            setSelectedAsset(inputId, selectedId, allOptions, item.dataset.value);
+            closeAssetPickers();
+        });
+    });
+
+    setSelectedAsset(inputId, selectedId, allOptions, currentValue);
+}
+
+function assetPickerOption(optionData) {
+    return `
+        <button
+            class="asset-select-option"
+            type="button"
+            role="option"
+            data-value="${escapeHtml(optionData.value)}"
+        >
+            ${renderAssetChoice(optionData)}
+        </button>
+    `;
+}
+
+function renderAssetChoice(optionData) {
+    if (!optionData.value) {
+        return `<span class="asset-select-empty">${escapeHtml(optionData.label)}</span>`;
+    }
+
+    return `
+        ${optionImage(optionData, "asset-option-icon")}
+        <span>${escapeHtml(optionData.label)}</span>
+    `;
+}
+
+function setSelectedAsset(inputId, selectedId, options, value) {
+    const input = document.getElementById(inputId);
+    const selected = document.getElementById(selectedId);
+    const optionData = options.find((optionItem) => optionItem.value === value);
+
+    input.value = optionData?.value || "";
+    selected.innerHTML = renderAssetChoice(optionData || options[0]);
+}
+
+function toggleAssetPicker(event, picker) {
+    event.stopPropagation();
+    closeAssetPickers(picker);
+    const isOpen = picker.classList.toggle("open");
+    picker
+        .querySelector(".asset-select-trigger")
+        .setAttribute("aria-expanded", String(isOpen));
+}
+
+function closeAssetPickers(exceptPicker = null) {
+    document.querySelectorAll(".asset-select").forEach((picker) => {
+        if (picker === exceptPicker) {
+            return;
+        }
+
+        picker.classList.remove("open");
+        picker
+            .querySelector(".asset-select-trigger")
+            ?.setAttribute("aria-expanded", "false");
+    });
+}
+
+function getSideOptions() {
+    return state.config.sides.map((side) => ({
+        value: side.id,
+        label: side.label,
+    }));
+}
+
+function getWeaponOptions() {
+    return [
+        { value: "", label: "No weapon selected" },
+        ...state.config.weapons.map((weapon) => ({
+            value: weapon.name,
+            label: weapon.name,
+            image_url: weapon.image_url,
+        })),
+    ];
 }
 
 function analyticsCard(title, body) {
