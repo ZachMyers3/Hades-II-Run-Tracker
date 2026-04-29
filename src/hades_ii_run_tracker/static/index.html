@@ -17,10 +17,50 @@
         </header>
 
         <main class="layout">
-            <section class="panel victory-panel">
+            <section class="content-stack">
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Friends</p>
+                        <h2>Victory Board</h2>
+                    </div>
+                    <div id="user-cards" class="user-grid"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Infernal Accounting</p>
+                        <h2>Analytics</h2>
+                    </div>
+                    <div id="analytics" class="analytics-grid"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Latest Escapes</p>
+                        <h2>Recent Runs</h2>
+                    </div>
+                    <div id="recent-runs" class="run-list"></div>
+                </section>
+            </section>
+        </main>
+
+        <button id="open-run-modal" class="floating-action" type="button">
+            Add Run
+        </button>
+
+        <div id="run-modal" class="modal-backdrop" aria-hidden="true">
+            <section
+                class="panel victory-panel modal-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="run-modal-title"
+            >
                 <div class="panel-heading">
                     <p class="eyebrow">Log a Victory</p>
-                    <h2>Add Run</h2>
+                    <h2 id="run-modal-title">Add Run</h2>
+                    <button id="close-run-modal" class="modal-close" type="button">
+                        Close
+                    </button>
                 </div>
 
                 <form id="run-form" class="run-form">
@@ -67,33 +107,7 @@
                     <p id="form-status" class="status" aria-live="polite"></p>
                 </form>
             </section>
-
-            <section class="content-stack">
-                <section class="panel">
-                    <div class="panel-heading">
-                        <p class="eyebrow">Friends</p>
-                        <h2>Victory Board</h2>
-                    </div>
-                    <div id="user-cards" class="user-grid"></div>
-                </section>
-
-                <section class="panel">
-                    <div class="panel-heading">
-                        <p class="eyebrow">Infernal Accounting</p>
-                        <h2>Analytics</h2>
-                    </div>
-                    <div id="analytics" class="analytics-grid"></div>
-                </section>
-
-                <section class="panel">
-                    <div class="panel-heading">
-                        <p class="eyebrow">Latest Escapes</p>
-                        <h2>Recent Runs</h2>
-                    </div>
-                    <div id="recent-runs" class="run-list"></div>
-                </section>
-            </section>
-        </main>
+        </div>
 
         <script src="/static/app.js"></script>
     </body>

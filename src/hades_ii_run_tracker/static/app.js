@@ -17,6 +17,13 @@ const chartColors = [
 
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("run-form").addEventListener("submit", submitRun);
+    document.getElementById("open-run-modal").addEventListener("click", openRunModal);
+    document.getElementById("close-run-modal").addEventListener("click", closeRunModal);
+    document.getElementById("run-modal").addEventListener("click", (event) => {
+        if (event.target.id === "run-modal") {
+            closeRunModal();
+        }
+    });
     document.addEventListener("click", () => closeAssetPickers());
     loadDashboard();
 });
@@ -233,11 +240,26 @@ async function submitRun(event) {
         setSelectedAsset("side", "side-selected", getSideOptions(), getSideOptions()[0].value);
         setSelectedAsset("weapon", "weapon-selected", getWeaponOptions(), "");
         setStatus("Victory recorded.", "success");
+        closeRunModal();
     } catch (error) {
         setStatus(error.message, "error");
     } finally {
         button.disabled = false;
     }
+}
+
+function openRunModal() {
+    const modal = document.getElementById("run-modal");
+    modal.classList.add("open");
+    modal.setAttribute("aria-hidden", "false");
+    document.getElementById("access-code").focus();
+}
+
+function closeRunModal() {
+    const modal = document.getElementById("run-modal");
+    modal.classList.remove("open");
+    modal.setAttribute("aria-hidden", "true");
+    closeAssetPickers();
 }
 
 function renderAssetPicker({
@@ -523,7 +545,7 @@ function renderVictoryBarChart(values, assetMap = new Map()) {
 
     const width = 520;
     const rowHeight = 34;
-    const labelWidth = 170;
+    const labelWidth = 210;
     const valueWidth = 42;
     const height = entries.length * rowHeight + 12;
     const maxValue = Math.max(1, ...entries.map((entry) => entry[1]));
@@ -534,10 +556,25 @@ function renderVictoryBarChart(values, assetMap = new Map()) {
                 ${entries
                     .map(([label, value], index) => {
                         const y = index * rowHeight + 8;
+                        const asset = assetMap.get(label);
+                        const icon = asset?.image_url
+                            ? `
+                                <image
+                                    href="${escapeHtml(asset.image_url)}"
+                                    x="0"
+                                    y="${y - 2}"
+                                    width="24"
+                                    height="24"
+                                    preserveAspectRatio="xMidYMid meet"
+                                ></image>
+                            `
+                            : "";
+                        const labelX = asset?.image_url ? 32 : 0;
                         const barWidth =
                             ((width - labelWidth - valueWidth - 18) * value) / maxValue;
                         return `
-                            <text class="bar-label" x="0" y="${y + 18}">
+                            ${icon}
+                            <text class="bar-label" x="${labelX}" y="${y + 18}">
                                 ${escapeHtml(formatSide(label))}
                             </text>
                             <rect
@@ -563,19 +600,6 @@ function renderVictoryBarChart(values, assetMap = new Map()) {
                     })
                     .join("")}
             </svg>
-        </div>
-        <div class="bar-asset-list">
-            ${entries
-                .map(([label, value]) => {
-                    const asset = assetMap.get(label);
-                    return `
-                        <span>
-                            ${optionImage(asset, "pill-icon")}
-                            ${escapeHtml(formatSide(label))}: ${value}
-                        </span>
-                    `;
-                })
-                .join("")}
         </div>
     `;
 }
