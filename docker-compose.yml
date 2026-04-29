@@ -1,0 +1,12 @@
+version: "3.7"
+
+services:
+  gamedaybot:
+    build:
+      context: .
+    restart: always
+    ports:
+      - 3010:8000
+    volumes:
+      - ./config.json:/app/config/config.json:ro
+      - ./data:/app/data
