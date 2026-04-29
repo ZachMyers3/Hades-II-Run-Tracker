@@ -1,0 +1,13 @@
+{
+  "runs": [
+    {
+      "id": "example-run",
+      "user_id": "melinoe-main",
+      "side": "topside",
+      "weapon": "Sister Blades",
+      "boons": ["Aphrodite", "Apollo"],
+      "notes": "Example victory. Delete this file or start with runs.json.",
+      "created_at": "2026-04-29T17:44:00Z"
+    }
+  ]
+}

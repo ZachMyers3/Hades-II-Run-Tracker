@@ -1,0 +1,103 @@
+{
+  "users": [
+    {
+      "id": "melinoe-main",
+      "display_name": "Melinoe Main",
+      "access_code": "moonshot"
+    },
+    {
+      "id": "chaos-friend",
+      "display_name": "Chaos Friend",
+      "access_code": "nightmare"
+    }
+  ],
+  "weapons": [
+    {
+      "name": "Witch's Staff",
+      "image_url": "/static/assets/weapons/witch-staff.png",
+      "source_url": "https://hades.fandom.com/wiki/File:StaffIcon.png"
+    },
+    {
+      "name": "Sister Blades",
+      "image_url": "/static/assets/weapons/sister-blades.png",
+      "source_url": "https://hades.fandom.com/wiki/File:BladesIcon.png"
+    },
+    {
+      "name": "Umbral Flames",
+      "image_url": "/static/assets/weapons/umbral-flames.png",
+      "source_url": "https://hades.fandom.com/wiki/File:TorchesIcon.png"
+    },
+    {
+      "name": "Moonstone Axe",
+      "image_url": "/static/assets/weapons/moonstone-axe.png",
+      "source_url": "https://hades.fandom.com/wiki/File:AxeIcon.png"
+    },
+    {
+      "name": "Argent Skull",
+      "image_url": "/static/assets/weapons/argent-skull.png",
+      "source_url": "https://hades.fandom.com/wiki/File:SkullIcon.png"
+    },
+    {
+      "name": "Black Coat",
+      "image_url": "/static/assets/weapons/black-coat.png",
+      "source_url": "https://hades.fandom.com/wiki/File:CoatIcon.png"
+    }
+  ],
+  "boons": [
+    {
+      "name": "Aphrodite",
+      "image_url": "/static/assets/boons/aphrodite.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Aphrodite_symbol_II.png"
+    },
+    {
+      "name": "Apollo",
+      "image_url": "/static/assets/boons/apollo.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Apollo_symbol_II.png"
+    },
+    {
+      "name": "Artemis",
+      "image_url": "/static/assets/boons/artemis.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Artemis_symbol_II.png"
+    },
+    {
+      "name": "Demeter",
+      "image_url": "/static/assets/boons/demeter.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Demeter_symbol_II.png"
+    },
+    {
+      "name": "Hera",
+      "image_url": "/static/assets/boons/hera.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Hera_symbol_II.png"
+    },
+    {
+      "name": "Hephaestus",
+      "image_url": "/static/assets/boons/hephaestus.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Hephaestus_symbol_II.png"
+    },
+    {
+      "name": "Hermes",
+      "image_url": "/static/assets/boons/hermes.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Hermes_symbol_II.png"
+    },
+    {
+      "name": "Hestia",
+      "image_url": "/static/assets/boons/hestia.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Hestia_symbol_II.png"
+    },
+    {
+      "name": "Poseidon",
+      "image_url": "/static/assets/boons/poseidon.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Poseidon_symbol_II.png"
+    },
+    {
+      "name": "Selene",
+      "image_url": "/static/assets/boons/selene.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Selene_Reward.png"
+    },
+    {
+      "name": "Zeus",
+      "image_url": "/static/assets/boons/zeus.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Zeus_symbol_II.png"
+    }
+  ]
+}

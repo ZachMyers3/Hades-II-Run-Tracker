@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Hades II Run Tracker</title>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        <header class="hero">
+            <p class="eyebrow">House of Hades</p>
+            <h1>Hades II Run Tracker</h1>
+            <p>
+                Track your friends' successful topside and bottomside runs,
+                then compare the carnage side by side.
+            </p>
+        </header>
+
+        <main class="layout">
+            <section class="panel victory-panel">
+                <div class="panel-heading">
+                    <p class="eyebrow">Log a Victory</p>
+                    <h2>Add Run</h2>
+                </div>
+
+                <form id="run-form" class="run-form">
+                    <label>
+                        Access Code
+                        <input
+                            id="access-code"
+                            name="access_code"
+                            type="password"
+                            autocomplete="off"
+                            required
+                        >
+                    </label>
+
+                    <label>
+                        Realm
+                        <select id="side" name="side" required></select>
+                    </label>
+
+                    <label>
+                        Weapon
+                        <select id="weapon" name="weapon"></select>
+                    </label>
+
+                    <fieldset>
+                        <legend>Primary Boons</legend>
+                        <div id="boons" class="boon-grid"></div>
+                    </fieldset>
+
+                    <label>
+                        Notes
+                        <textarea
+                            id="notes"
+                            name="notes"
+                            rows="3"
+                            maxlength="500"
+                            placeholder="Optional build notes, chaos, revenge..."
+                        ></textarea>
+                    </label>
+
+                    <button type="submit">Record Victory</button>
+                    <p id="form-status" class="status" aria-live="polite"></p>
+                </form>
+            </section>
+
+            <section class="content-stack">
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Friends</p>
+                        <h2>Victory Board</h2>
+                    </div>
+                    <div id="user-cards" class="user-grid"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Infernal Accounting</p>
+                        <h2>Analytics</h2>
+                    </div>
+                    <div id="analytics" class="analytics-grid"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Latest Escapes</p>
+                        <h2>Recent Runs</h2>
+                    </div>
+                    <div id="recent-runs" class="run-list"></div>
+                </section>
+            </section>
+        </main>
+
+        <script src="/static/app.js"></script>
+    </body>
+</html>

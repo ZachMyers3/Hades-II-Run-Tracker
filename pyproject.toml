@@ -1,0 +1,48 @@
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.poetry]
+name = "hades-ii-run-tracker"
+description = "A simple, for-fun website where a small group of friends can log and compare their Hades II victories. No complicated auth — just access codes you manage in a config file. FastAPI backend, flat JSON storage, plain HTML/CSS/JS frontend."
+version = "0.1.0"
+authors = ["Zachary Myers <zachmyers@woosterbrush.com>"]
+readme = "README.md"
+license = "BSD-3-Clause"
+classifiers = [
+    'Development Status :: 2 - Pre-Alpha',
+    'Intended Audience :: Developers',
+    'License :: OSI Approved :: BSD License',
+    'Natural Language :: English',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+]
+packages = [
+    { include = "hades_ii_run_tracker", from = "src" },
+    { include = "tests", format = "sdist" },
+]
+include = ["src/hades_ii_run_tracker/static/**/*"]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<=3.13"
+fastapi = ">=0.110"
+uvicorn = { extras = ["standard"], version = ">=0.29" }
+typer = ">=0.3.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=6.2.4"
+httpx = ">=0.27"
+bump2version = ">=1.0.1"
+ruff = ">=0.0.261"
+pre-commit = ">=3.2.2"
+
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
