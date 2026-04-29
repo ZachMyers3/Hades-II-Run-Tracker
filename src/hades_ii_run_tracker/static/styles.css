@@ -321,8 +321,140 @@ button:disabled {
 
 .analytics-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
     gap: 0.8rem;
+}
+
+.wide-card {
+    grid-column: 1 / -1;
+}
+
+.chart-card {
+    grid-column: span 2;
+}
+
+.range-control {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    align-items: end;
+    margin-bottom: 1rem;
+}
+
+.range-control label {
+    min-width: 9rem;
+}
+
+.range-control button {
+    padding: 0.75rem 1rem;
+}
+
+.chart-wrap,
+.bar-chart-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.line-chart,
+.victory-bar-chart {
+    width: 100%;
+}
+
+.line-chart {
+    min-width: 520px;
+}
+
+.chart-grid,
+.chart-axis {
+    stroke: rgba(214, 169, 76, 0.18);
+    stroke-width: 1;
+}
+
+.chart-axis {
+    stroke: rgba(214, 169, 76, 0.35);
+}
+
+.chart-axis-label,
+.bar-label,
+.bar-value {
+    fill: var(--muted);
+    font-size: 0.74rem;
+}
+
+.chart-line {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 3;
+}
+
+.chart-legend,
+.bar-asset-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.8rem;
+    margin-top: 0.8rem;
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.chart-legend span,
+.bar-asset-list span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.chart-legend i {
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 999px;
+}
+
+.chart-style-legend {
+    color: var(--gold);
+}
+
+.chart-style-legend svg {
+    width: 2.4rem;
+    height: 0.7rem;
+}
+
+.chart-user-legend {
+    margin-top: 0.35rem;
+}
+
+.bar-track {
+    fill: rgba(255, 255, 255, 0.08);
+}
+
+.bar-fill {
+    fill: url("#barGradient");
+}
+
+.victory-bar-chart .bar-fill {
+    fill: var(--gold);
+}
+
+.metric-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.metric-list div {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.metric-list span {
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+}
+
+.metric-list strong {
+    color: var(--text);
+    font-size: 0.95rem;
 }
 
 .bar-row {
@@ -399,6 +531,10 @@ button:disabled {
 @media (max-width: 820px) {
     .layout {
         grid-template-columns: 1fr;
+    }
+
+    .chart-card {
+        grid-column: 1 / -1;
     }
 
     .hero {

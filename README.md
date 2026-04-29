@@ -11,7 +11,7 @@ file, and anyone with a configured code can submit a victory.
 
 - Track topside and bottomside victories per friend.
 - Optionally record weapon, primary boons, and notes.
-- Show side-by-side friend cards and lightweight analytics.
+- Show side-by-side friend cards, line charts, bar charts, and lightweight analytics.
 - Persist data in a single JSON file.
 - Run locally with Uvicorn or as a Docker container.
 
@@ -46,7 +46,10 @@ The app reads config from `HADES_CONFIG_PATH`, defaulting to
       "name": "Aphrodite",
       "image_url": "/static/assets/boons/aphrodite.png"
     }
-  ]
+  ],
+  "analytics": {
+    "date_range_days": 7
+  }
 }
 ```
 
@@ -55,6 +58,18 @@ The data file path is controlled by `HADES_DATA_PATH`, defaulting to
 
 For a bare-bones config, `weapons` and `boons` can still be simple string
 arrays. Use objects when you want cached local images or source attribution.
+The analytics date range controls the default number of days shown in the
+runs-over-time chart. Users can temporarily change that range in the web UI.
+
+## Analytics
+
+The dashboard includes:
+
+- A line chart for per-user daily wins, topside wins, bottomside wins, and
+  cumulative wins over the selected date range.
+- Bar charts for victories by realm, weapon, and boon.
+- Quick stats for current leader, recent momentum, weapon variety, boon
+  variety, and realm split.
 
 ## Running Locally
 

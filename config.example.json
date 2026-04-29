@@ -43,6 +43,9 @@
       "source_url": "https://hades.fandom.com/wiki/File:CoatIcon.png"
     }
   ],
+  "analytics": {
+    "date_range_days": 7
+  },
   "boons": [
     {
       "name": "Aphrodite",

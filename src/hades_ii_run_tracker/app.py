@@ -1,15 +1,24 @@
 import os
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import load_config, public_config
-from .models import Analytics, RunCreate, RunRecord, UserAnalytics
+from .models import (
+    Analytics,
+    DateBucket,
+    ExtraAnalytics,
+    RunCreate,
+    RunRecord,
+    UserAnalytics,
+    UserExtraAnalytics,
+    UserMetric,
+)
 from .storage import JsonRunStore
 
 
@@ -75,12 +84,16 @@ def create_app(
             raise HTTPException(status_code=404, detail="Run not found.")
 
     @web_app.get("/api/analytics", response_model=Analytics)
-    def get_analytics() -> Analytics:
+    def get_analytics(
+        date_range_days: int | None = Query(default=None, ge=1, le=365),
+    ) -> Analytics:
         config = _load_runtime_config(web_app)
         runs = web_app.state.store.list_runs()
+        effective_range = date_range_days or config.analytics.date_range_days
         by_side = Counter(run.side for run in runs)
         by_weapon = Counter(run.weapon for run in runs if run.weapon)
         by_boon = Counter(boon for run in runs for boon in run.boons)
+        daily_runs = _build_daily_runs(runs, config.users, effective_range)
 
         user_summaries = []
         for user in config.users:
@@ -104,11 +117,18 @@ def create_app(
             )
 
         return Analytics(
+            date_range_days=effective_range,
             total_runs=len(runs),
             by_side=dict(by_side),
             by_weapon=dict(by_weapon),
             by_boon=dict(by_boon),
+            daily_runs=daily_runs,
             users=user_summaries,
+            extra_metrics=_build_extra_metrics(
+                runs,
+                config.users,
+                daily_runs,
+            ),
             recent_runs=_sorted_runs(runs)[:10],
         )
 
@@ -140,6 +160,133 @@ def _validate_options(
 
 def _sorted_runs(runs: list[RunRecord]) -> list[RunRecord]:
     return sorted(runs, key=lambda run: run.created_at, reverse=True)
+
+
+def _build_daily_runs(
+    runs: list[RunRecord],
+    users,
+    date_range_days: int,
+) -> list[DateBucket]:
+    today = datetime.now(UTC).date()
+    start_date = today - timedelta(days=date_range_days - 1)
+    runs_by_date = _runs_by_date(runs)
+    cumulative_total = 0
+    cumulative_by_user = {user.id: 0 for user in users}
+    buckets = []
+
+    for offset in range(date_range_days):
+        bucket_date = start_date + timedelta(days=offset)
+        bucket_runs = runs_by_date.get(bucket_date, [])
+        by_user = {
+            user.id: sum(run.user_id == user.id for run in bucket_runs)
+            for user in users
+        }
+        by_user_topside = {
+            user.id: sum(
+                run.user_id == user.id and run.side == "topside"
+                for run in bucket_runs
+            )
+            for user in users
+        }
+        by_user_bottomside = {
+            user.id: sum(
+                run.user_id == user.id and run.side == "bottomside"
+                for run in bucket_runs
+            )
+            for user in users
+        }
+        for user in users:
+            cumulative_by_user[user.id] += by_user[user.id]
+        topside = sum(run.side == "topside" for run in bucket_runs)
+        bottomside = sum(run.side == "bottomside" for run in bucket_runs)
+        total = len(bucket_runs)
+        cumulative_total += total
+        buckets.append(
+            DateBucket(
+                date=bucket_date.isoformat(),
+                total=total,
+                topside=topside,
+                bottomside=bottomside,
+                cumulative_total=cumulative_total,
+                by_user=by_user,
+                by_user_topside=by_user_topside,
+                by_user_bottomside=by_user_bottomside,
+                by_user_cumulative=dict(cumulative_by_user),
+            )
+        )
+
+    return buckets
+
+
+def _build_extra_metrics(
+    runs: list[RunRecord],
+    users,
+    daily_runs: list[DateBucket],
+) -> ExtraAnalytics:
+    totals_by_user = Counter(run.user_id for run in runs)
+    leader = None
+    if totals_by_user:
+        leader_id, leader_total = totals_by_user.most_common(1)[0]
+        leader_user = next((user for user in users if user.id == leader_id), None)
+        if leader_user:
+            leader = UserMetric(
+                user_id=leader_user.id,
+                display_name=leader_user.display_name,
+                total=leader_total,
+            )
+
+    recent_by_user = Counter()
+    for bucket in daily_runs:
+        recent_by_user.update(bucket.by_user)
+
+    recent_momentum = [
+        UserMetric(
+            user_id=user.id,
+            display_name=user.display_name,
+            total=recent_by_user[user.id],
+        )
+        for user in users
+    ]
+
+    user_stats = []
+    for user in users:
+        user_runs = [run for run in runs if run.user_id == user.id]
+        total = len(user_runs)
+        topside = sum(run.side == "topside" for run in user_runs)
+        bottomside = sum(run.side == "bottomside" for run in user_runs)
+        user_stats.append(
+            UserExtraAnalytics(
+                user_id=user.id,
+                display_name=user.display_name,
+                recent_total=recent_by_user[user.id],
+                weapon_variety=len({run.weapon for run in user_runs if run.weapon}),
+                boon_variety=len({boon for run in user_runs for boon in run.boons}),
+                topside_percent=round((topside / total) * 100, 1)
+                if total
+                else 0,
+                bottomside_percent=round((bottomside / total) * 100, 1)
+                if total
+                else 0,
+            )
+        )
+
+    return ExtraAnalytics(
+        current_leader=leader,
+        recent_momentum=recent_momentum,
+        user_stats=user_stats,
+    )
+
+
+def _runs_by_date(runs: list[RunRecord]) -> dict[date, list[RunRecord]]:
+    grouped: dict[date, list[RunRecord]] = {}
+    for run in runs:
+        run_date = _parse_created_at(run.created_at).date()
+        grouped.setdefault(run_date, []).append(run)
+    return grouped
+
+
+def _parse_created_at(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
 
 
 def _first_counter_key(counter: Counter) -> str | None:

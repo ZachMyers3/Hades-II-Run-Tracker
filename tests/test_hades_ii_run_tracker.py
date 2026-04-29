@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -87,12 +88,86 @@ def test_analytics_counts_runs(tmp_path):
 
     assert response.status_code == 200
     analytics = response.json()
+    assert analytics["date_range_days"] == 7
     assert analytics["total_runs"] == 2
     assert analytics["by_side"] == {"topside": 1, "bottomside": 1}
     assert analytics["by_weapon"]["Sister Blades"] == 1
     assert analytics["by_boon"]["Apollo"] == 2
+    assert len(analytics["daily_runs"]) == 7
     assert analytics["users"][0]["total"] == 1
     assert analytics["users"][1]["bottomside"] == 1
+    assert analytics["extra_metrics"]["current_leader"]["total"] == 1
+
+
+def test_custom_analytics_config_changes_default_bucket_count(tmp_path):
+    config = sample_config()
+    config["analytics"] = {"date_range_days": 3}
+    client = make_client(tmp_path, config=config)
+
+    response = client.get("/api/analytics")
+
+    assert response.status_code == 200
+    analytics = response.json()
+    assert analytics["date_range_days"] == 3
+    assert len(analytics["daily_runs"]) == 3
+
+
+def test_analytics_query_parameter_overrides_default_bucket_count(tmp_path):
+    client = make_client(tmp_path)
+
+    response = client.get("/api/analytics?date_range_days=2")
+
+    assert response.status_code == 200
+    analytics = response.json()
+    assert analytics["date_range_days"] == 2
+    assert len(analytics["daily_runs"]) == 2
+
+
+def test_daily_buckets_include_empty_days_and_counts(tmp_path):
+    today = datetime.now(UTC).date()
+    yesterday = today - timedelta(days=1)
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "run-1",
+                "zach",
+                "topside",
+                created_at=f"{yesterday.isoformat()}T12:00:00Z",
+            ),
+            sample_run(
+                "run-2",
+                "meg",
+                "bottomside",
+                created_at=f"{today.isoformat()}T12:00:00Z",
+            ),
+            sample_run(
+                "run-3",
+                "meg",
+                "bottomside",
+                created_at=f"{today.isoformat()}T13:00:00Z",
+            ),
+        ],
+    )
+
+    response = client.get("/api/analytics?date_range_days=3")
+
+    assert response.status_code == 200
+    buckets = response.json()["daily_runs"]
+    assert [bucket["total"] for bucket in buckets] == [0, 1, 2]
+    assert buckets[0]["by_user"] == {"zach": 0, "meg": 0}
+    assert buckets[0]["by_user_topside"] == {"zach": 0, "meg": 0}
+    assert buckets[0]["by_user_bottomside"] == {"zach": 0, "meg": 0}
+    assert buckets[0]["by_user_cumulative"] == {"zach": 0, "meg": 0}
+    assert buckets[1]["topside"] == 1
+    assert buckets[1]["by_user_topside"] == {"zach": 1, "meg": 0}
+    assert buckets[1]["by_user_bottomside"] == {"zach": 0, "meg": 0}
+    assert buckets[1]["by_user_cumulative"] == {"zach": 1, "meg": 0}
+    assert buckets[2]["bottomside"] == 2
+    assert buckets[2]["by_user_topside"] == {"zach": 0, "meg": 0}
+    assert buckets[2]["by_user_bottomside"] == {"zach": 0, "meg": 2}
+    assert buckets[2]["by_user_cumulative"] == {"zach": 1, "meg": 2}
+    assert [bucket["cumulative_total"] for bucket in buckets] == [0, 1, 3]
 
 
 def test_json_storage_initializes_when_missing(tmp_path):
@@ -101,10 +176,12 @@ def test_json_storage_initializes_when_missing(tmp_path):
     assert store.list_runs() == []
 
 
-def make_client(tmp_path) -> TestClient:
+def make_client(tmp_path, config=None, runs=None) -> TestClient:
     config_path = tmp_path / "config.json"
     data_path = tmp_path / "runs.json"
-    config_path.write_text(json.dumps(sample_config()), encoding="utf-8")
+    config_path.write_text(json.dumps(config or sample_config()), encoding="utf-8")
+    if runs is not None:
+        data_path.write_text(json.dumps({"runs": runs}), encoding="utf-8")
     return TestClient(create_app(config_path=config_path, data_path=data_path))
 
 
@@ -137,4 +214,21 @@ def sample_config() -> dict:
             },
             {"name": "Zeus"},
         ],
+    }
+
+
+def sample_run(
+    run_id: str,
+    user_id: str,
+    side: str,
+    created_at: str,
+) -> dict:
+    return {
+        "id": run_id,
+        "user_id": user_id,
+        "side": side,
+        "weapon": "Sister Blades",
+        "boons": ["Apollo"],
+        "notes": None,
+        "created_at": created_at,
     }

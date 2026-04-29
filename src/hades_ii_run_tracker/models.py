@@ -28,10 +28,15 @@ class ConfigOption(BaseModel):
     source_url: str | None = None
 
 
+class AnalyticsSettings(BaseModel):
+    date_range_days: int = Field(default=7, ge=1, le=365)
+
+
 class TrackerConfig(BaseModel):
     users: list[ConfigUser]
     weapons: list[ConfigOption] = Field(default_factory=list)
     boons: list[ConfigOption] = Field(default_factory=list)
+    analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
 
     @field_validator("weapons", "boons", mode="before")
     @classmethod
@@ -117,10 +122,47 @@ class UserAnalytics(BaseModel):
     favorite_boons: list[str]
 
 
+class DateBucket(BaseModel):
+    date: str
+    total: int
+    topside: int
+    bottomside: int
+    cumulative_total: int
+    by_user: dict[str, int]
+    by_user_topside: dict[str, int]
+    by_user_bottomside: dict[str, int]
+    by_user_cumulative: dict[str, int]
+
+
+class UserMetric(BaseModel):
+    user_id: str
+    display_name: str
+    total: int
+
+
+class UserExtraAnalytics(BaseModel):
+    user_id: str
+    display_name: str
+    recent_total: int
+    weapon_variety: int
+    boon_variety: int
+    topside_percent: float
+    bottomside_percent: float
+
+
+class ExtraAnalytics(BaseModel):
+    current_leader: UserMetric | None
+    recent_momentum: list[UserMetric]
+    user_stats: list[UserExtraAnalytics]
+
+
 class Analytics(BaseModel):
+    date_range_days: int
     total_runs: int
     by_side: dict[str, int]
     by_weapon: dict[str, int]
     by_boon: dict[str, int]
+    daily_runs: list[DateBucket]
     users: list[UserAnalytics]
+    extra_metrics: ExtraAnalytics
     recent_runs: list[RunRecord]
