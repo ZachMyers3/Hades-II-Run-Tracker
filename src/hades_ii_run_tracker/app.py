@@ -70,14 +70,56 @@ def create_app(
         )
         return web_app.state.store.append_run(run)
 
+    @web_app.put("/api/runs/{run_id}", response_model=RunRecord)
+    def update_run(run_id: str, payload: RunCreate) -> RunRecord:
+        config = _load_runtime_config(web_app)
+        runs = web_app.state.store.list_runs()
+        existing_run = next((run for run in runs if run.id == run_id), None)
+        if existing_run is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+
+        user = config.user_for_code(payload.access_code)
+        if user is None or user.id != existing_run.user_id:
+            raise HTTPException(status_code=403, detail="Invalid access code.")
+
+        _validate_options(
+            payload,
+            [weapon.name for weapon in config.weapons],
+            [boon.name for boon in config.boons],
+        )
+        updated_run = RunRecord(
+            id=existing_run.id,
+            user_id=existing_run.user_id,
+            side=payload.side,
+            weapon=payload.weapon,
+            boons=payload.boons,
+            notes=payload.notes,
+            created_at=existing_run.created_at,
+        )
+        saved_run = web_app.state.store.update_run(run_id, updated_run)
+        if saved_run is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+
+        return saved_run
+
     @web_app.delete("/api/runs/{run_id}", status_code=204)
     def delete_run(
         run_id: str,
         x_admin_code: str | None = Header(default=None),
+        x_access_code: str | None = Header(default=None),
     ) -> None:
         admin_code = os.getenv("ADMIN_CODE")
-        if not admin_code or x_admin_code != admin_code:
-            raise HTTPException(status_code=403, detail="Invalid admin code.")
+        is_admin = bool(admin_code and x_admin_code == admin_code)
+        if not is_admin:
+            config = _load_runtime_config(web_app)
+            runs = web_app.state.store.list_runs()
+            existing_run = next((run for run in runs if run.id == run_id), None)
+            if existing_run is None:
+                raise HTTPException(status_code=404, detail="Run not found.")
+
+            user = config.user_for_code(x_access_code or "")
+            if user is None or user.id != existing_run.user_id:
+                raise HTTPException(status_code=403, detail="Invalid access code.")
 
         deleted = web_app.state.store.delete_run(run_id)
         if not deleted:
@@ -172,6 +214,8 @@ def _build_daily_runs(
     runs_by_date = _runs_by_date(runs)
     cumulative_total = 0
     cumulative_by_user = {user.id: 0 for user in users}
+    cumulative_topside_by_user = {user.id: 0 for user in users}
+    cumulative_bottomside_by_user = {user.id: 0 for user in users}
     buckets = []
 
     for offset in range(date_range_days):
@@ -197,6 +241,8 @@ def _build_daily_runs(
         }
         for user in users:
             cumulative_by_user[user.id] += by_user[user.id]
+            cumulative_topside_by_user[user.id] += by_user_topside[user.id]
+            cumulative_bottomside_by_user[user.id] += by_user_bottomside[user.id]
         topside = sum(run.side == "topside" for run in bucket_runs)
         bottomside = sum(run.side == "bottomside" for run in bucket_runs)
         total = len(bucket_runs)
@@ -209,8 +255,8 @@ def _build_daily_runs(
                 bottomside=bottomside,
                 cumulative_total=cumulative_total,
                 by_user=by_user,
-                by_user_topside=by_user_topside,
-                by_user_bottomside=by_user_bottomside,
+                by_user_topside=dict(cumulative_topside_by_user),
+                by_user_bottomside=dict(cumulative_bottomside_by_user),
                 by_user_cumulative=dict(cumulative_by_user),
             )
         )

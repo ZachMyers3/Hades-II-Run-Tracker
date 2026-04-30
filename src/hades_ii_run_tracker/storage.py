@@ -25,6 +25,17 @@ class JsonRunStore:
             self._write_runs(runs)
         return run
 
+    def update_run(self, run_id: str, updated_run: RunRecord) -> RunRecord | None:
+        with self._lock:
+            runs = self._read_runs()
+            for index, run in enumerate(runs):
+                if run.id == run_id:
+                    runs[index] = updated_run
+                    self._write_runs(runs)
+                    return updated_run
+
+        return None
+
     def delete_run(self, run_id: str) -> bool:
         with self._lock:
             runs = self._read_runs()

@@ -63,6 +63,117 @@ def test_invalid_access_code_is_rejected(tmp_path):
     assert client.get("/api/runs").json() == []
 
 
+def test_valid_owner_access_code_updates_run(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "run-1",
+                "zach",
+                "topside",
+                created_at="2026-04-29T12:00:00Z",
+            )
+        ],
+    )
+
+    response = client.put(
+        "/api/runs/run-1",
+        json={
+            "access_code": "moonshot",
+            "side": "bottomside",
+            "weapon": "Moonstone Axe",
+            "boons": ["Zeus"],
+            "notes": "Corrected details.",
+        },
+    )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["id"] == "run-1"
+    assert updated["user_id"] == "zach"
+    assert updated["side"] == "bottomside"
+    assert updated["weapon"] == "Moonstone Axe"
+    assert updated["boons"] == ["Zeus"]
+    assert updated["notes"] == "Corrected details."
+    assert updated["created_at"] == "2026-04-29T12:00:00Z"
+
+
+def test_wrong_access_code_does_not_update_run(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "run-1",
+                "zach",
+                "topside",
+                created_at="2026-04-29T12:00:00Z",
+            )
+        ],
+    )
+
+    response = client.put(
+        "/api/runs/run-1",
+        json={
+            "access_code": "fury",
+            "side": "bottomside",
+            "weapon": "Moonstone Axe",
+            "boons": ["Zeus"],
+            "notes": "Should not save.",
+        },
+    )
+
+    assert response.status_code == 403
+    saved_run = client.get("/api/runs").json()[0]
+    assert saved_run["side"] == "topside"
+    assert saved_run["weapon"] == "Sister Blades"
+    assert saved_run["boons"] == ["Apollo"]
+    assert saved_run["notes"] is None
+
+
+def test_valid_owner_access_code_deletes_run(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "run-1",
+                "zach",
+                "topside",
+                created_at="2026-04-29T12:00:00Z",
+            )
+        ],
+    )
+
+    response = client.delete(
+        "/api/runs/run-1",
+        headers={"X-Access-Code": "moonshot"},
+    )
+
+    assert response.status_code == 204
+    assert client.get("/api/runs").json() == []
+
+
+def test_wrong_access_code_does_not_delete_run(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "run-1",
+                "zach",
+                "topside",
+                created_at="2026-04-29T12:00:00Z",
+            )
+        ],
+    )
+
+    response = client.delete(
+        "/api/runs/run-1",
+        headers={"X-Access-Code": "fury"},
+    )
+
+    assert response.status_code == 403
+    assert len(client.get("/api/runs").json()) == 1
+
+
 def test_analytics_counts_runs(tmp_path):
     client = make_client(tmp_path)
     client.post(
@@ -164,7 +275,7 @@ def test_daily_buckets_include_empty_days_and_counts(tmp_path):
     assert buckets[1]["by_user_bottomside"] == {"zach": 0, "meg": 0}
     assert buckets[1]["by_user_cumulative"] == {"zach": 1, "meg": 0}
     assert buckets[2]["bottomside"] == 2
-    assert buckets[2]["by_user_topside"] == {"zach": 0, "meg": 0}
+    assert buckets[2]["by_user_topside"] == {"zach": 1, "meg": 0}
     assert buckets[2]["by_user_bottomside"] == {"zach": 0, "meg": 2}
     assert buckets[2]["by_user_cumulative"] == {"zach": 1, "meg": 2}
     assert [bucket["cumulative_total"] for bucket in buckets] == [0, 1, 3]

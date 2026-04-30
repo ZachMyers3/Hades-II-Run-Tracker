@@ -1,6 +1,7 @@
 const state = {
     config: null,
     analytics: null,
+    editingRun: null,
 };
 
 const userNameById = new Map();
@@ -17,7 +18,11 @@ const chartColors = [
 
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("run-form").addEventListener("submit", submitRun);
-    document.getElementById("open-run-modal").addEventListener("click", openRunModal);
+    document.getElementById("run-delete").addEventListener("click", deleteEditingRun);
+    document.getElementById("open-run-modal").addEventListener("click", () => {
+        resetRunForm();
+        openRunModal();
+    });
     document.getElementById("close-run-modal").addEventListener("click", closeRunModal);
     document.getElementById("run-modal").addEventListener("click", (event) => {
         if (event.target.id === "run-modal") {
@@ -189,7 +194,10 @@ function renderRecentRuns(runs) {
     container.innerHTML = runs
         .map(
             (run) => `
-                <article class="run-item">
+                <article
+                    class="run-item"
+                    data-run-id="${escapeHtml(run.id)}"
+                >
                     <div class="run-title">
                         <span>${escapeHtml(userNameById.get(run.user_id) || run.user_id)}</span>
                         <span>${formatSide(run.side)}</span>
@@ -199,10 +207,18 @@ function renderRecentRuns(runs) {
                     </div>
                     <div class="pill-list">${renderPills(run.boons, boonByName)}</div>
                     ${run.notes ? `<p>${escapeHtml(run.notes)}</p>` : ""}
+                    <button
+                        class="edit-run-button"
+                        type="button"
+                        data-run-id="${escapeHtml(run.id)}"
+                    >
+                        Edit
+                    </button>
                 </article>
             `,
         )
         .join("");
+    container.onclick = (event) => openRunFromEvent(event, runs);
 }
 
 async function submitRun(event) {
@@ -224,8 +240,9 @@ async function submitRun(event) {
     setStatus("Recording victory...", "");
 
     try {
-        const response = await fetch("/api/runs", {
-            method: "POST",
+        const editingRun = state.editingRun;
+        const response = await fetch(editingRun ? `/api/runs/${editingRun.id}` : "/api/runs", {
+            method: editingRun ? "PUT" : "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
         });
@@ -236,10 +253,8 @@ async function submitRun(event) {
         }
 
         await loadDashboard();
-        form.reset();
-        setSelectedAsset("side", "side-selected", getSideOptions(), getSideOptions()[0].value);
-        setSelectedAsset("weapon", "weapon-selected", getWeaponOptions(), "");
-        setStatus("Victory recorded.", "success");
+        resetRunForm();
+        setStatus(editingRun ? "Victory updated." : "Victory recorded.", "success");
         closeRunModal();
     } catch (error) {
         setStatus(error.message, "error");
@@ -260,6 +275,84 @@ function closeRunModal() {
     modal.classList.remove("open");
     modal.setAttribute("aria-hidden", "true");
     closeAssetPickers();
+}
+
+function openEditRunModal(run) {
+    state.editingRun = run;
+    document.getElementById("run-modal-eyebrow").textContent = "Revise a Victory";
+    document.getElementById("run-modal-title").textContent = "Edit Run";
+    document.getElementById("run-submit").textContent = "Save Changes";
+    document.getElementById("run-delete").hidden = false;
+    document.getElementById("access-code").value = "";
+    setSelectedAsset("side", "side-selected", getSideOptions(), run.side);
+    setSelectedAsset("weapon", "weapon-selected", getWeaponOptions(), run.weapon || "");
+    document.getElementById("notes").value = run.notes || "";
+    document.querySelectorAll('input[name="boons"]').forEach((input) => {
+        input.checked = run.boons.includes(input.value);
+    });
+    setStatus("Enter this runner's access code to save changes.", "");
+    openRunModal();
+}
+
+function resetRunForm() {
+    state.editingRun = null;
+    document.getElementById("run-modal-eyebrow").textContent = "Log a Victory";
+    document.getElementById("run-modal-title").textContent = "Add Run";
+    document.getElementById("run-submit").textContent = "Record Victory";
+    document.getElementById("run-delete").hidden = true;
+    document.getElementById("run-form").reset();
+    setSelectedAsset("side", "side-selected", getSideOptions(), getSideOptions()[0].value);
+    setSelectedAsset("weapon", "weapon-selected", getWeaponOptions(), "");
+    setStatus("", "");
+}
+
+function openRunFromEvent(event, runs) {
+    const button = event.target.closest(".edit-run-button");
+    if (!button) {
+        return;
+    }
+
+    event.preventDefault();
+    const run = runs.find((runItem) => runItem.id === button.dataset.runId);
+    if (run) {
+        openEditRunModal(run);
+    }
+}
+
+async function deleteEditingRun() {
+    const editingRun = state.editingRun;
+    const accessCode = document.getElementById("access-code").value.trim();
+    if (!editingRun) {
+        return;
+    }
+
+    if (!accessCode) {
+        setStatus("Enter this runner's access code to delete the run.", "error");
+        return;
+    }
+
+    const confirmed = window.confirm("Delete this run? This cannot be undone.");
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/runs/${editingRun.id}`, {
+            method: "DELETE",
+            headers: { "X-Access-Code": accessCode },
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Could not delete run.");
+        }
+
+        await loadDashboard();
+        resetRunForm();
+        closeRunModal();
+    } catch (error) {
+        setStatus(error.message, "error");
+    }
 }
 
 function renderAssetPicker({

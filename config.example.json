@@ -58,6 +58,11 @@
       "source_url": "https://hades.fandom.com/wiki/File:Apollo_symbol_II.png"
     },
     {
+      "name": "Ares",
+      "image_url": "/static/assets/boons/ares.png",
+      "source_url": "https://hades.fandom.com/wiki/File:Ares_symbol_II.png"
+    },
+    {
       "name": "Artemis",
       "image_url": "/static/assets/boons/artemis.png",
       "source_url": "https://hades.fandom.com/wiki/File:Artemis_symbol_II.png"

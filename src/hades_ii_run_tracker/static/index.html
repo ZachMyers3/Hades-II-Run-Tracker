@@ -56,7 +56,7 @@
                 aria-labelledby="run-modal-title"
             >
                 <div class="panel-heading">
-                    <p class="eyebrow">Log a Victory</p>
+                    <p id="run-modal-eyebrow" class="eyebrow">Log a Victory</p>
                     <h2 id="run-modal-title">Add Run</h2>
                     <button id="close-run-modal" class="modal-close" type="button">
                         Close
@@ -103,7 +103,12 @@
                         ></textarea>
                     </label>
 
-                    <button type="submit">Record Victory</button>
+                    <div class="modal-actions">
+                        <button id="run-submit" type="submit">Record Victory</button>
+                        <button id="run-delete" class="danger-button" type="button" hidden>
+                            Delete Run
+                        </button>
+                    </div>
                     <p id="form-status" class="status" aria-live="polite"></p>
                 </form>
             </section>

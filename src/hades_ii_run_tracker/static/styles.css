@@ -282,6 +282,18 @@ button:disabled {
     cursor: wait;
 }
 
+.modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    align-items: center;
+}
+
+.danger-button {
+    color: var(--text);
+    background: linear-gradient(135deg, #7f1d1d, var(--red));
+}
+
 .boon-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -547,6 +559,12 @@ button:disabled {
     justify-content: space-between;
     gap: 0.5rem;
     font-weight: 900;
+}
+
+.edit-run-button {
+    justify-self: start;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.72rem;
 }
 
 .pill-list {
