@@ -99,6 +99,8 @@ Run with a mounted config file and data directory:
 
 ```bash
 docker run --rm -p 8000:8000 \
+  -e PUID="$(id -u)" \
+  -e PGID="$(id -g)" \
   -v ./config.json:/app/config/config.json \
   -v ./data:/app/data \
   hades-ii-run-tracker
@@ -108,6 +110,8 @@ On PowerShell:
 
 ```powershell
 docker run --rm -p 8000:8000 `
+  -e PUID=1000 `
+  -e PGID=1000 `
   -v ${PWD}/config.json:/app/config/config.json `
   -v ${PWD}/data:/app/data `
   hades-ii-run-tracker
@@ -115,6 +119,11 @@ docker run --rm -p 8000:8000 `
 
 Mount `config.json` as writable if you want `/admin` changes to persist. Back up
 `config.json` and `data/runs.json` if you care about the history.
+
+The container starts as root, creates or reuses the user/group from `PUID` and
+`PGID`, updates ownership for `/app/config` and `/app/data`, then runs the app as
+that user. Set those values to the host user that owns your mounted files when
+Docker bind mounts have read/write permission issues.
 
 ## Admin Dashboard
 

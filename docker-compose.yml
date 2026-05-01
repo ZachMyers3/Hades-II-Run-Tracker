@@ -7,6 +7,9 @@ services:
     restart: always
     ports:
       - 3010:8000
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
     volumes:
       - ./config.json:/app/config/config.json
       - ./data:/app/data
