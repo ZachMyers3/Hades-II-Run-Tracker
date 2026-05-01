@@ -8,5 +8,5 @@ services:
     ports:
       - 3010:8000
     volumes:
-      - ./config.json:/app/config/config.json:ro
+      - ./config.json:/app/config/config.json
       - ./data:/app/data

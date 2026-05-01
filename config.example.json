@@ -46,6 +46,9 @@
   "analytics": {
     "date_range_days": 7
   },
+  "admin": {
+    "password": "change-me"
+  },
   "boons": [
     {
       "name": "Aphrodite",

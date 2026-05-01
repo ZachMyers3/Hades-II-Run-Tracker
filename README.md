@@ -49,6 +49,9 @@ The app reads config from `HADES_CONFIG_PATH`, defaulting to
   ],
   "analytics": {
     "date_range_days": 7
+  },
+  "admin": {
+    "password": "change-me"
   }
 }
 ```
@@ -60,6 +63,8 @@ For a bare-bones config, `weapons` and `boons` can still be simple string
 arrays. Use objects when you want cached local images or source attribution.
 The analytics date range controls the default number of days shown in the
 runs-over-time chart. Users can temporarily change that range in the web UI.
+The admin password protects `/admin`, where user and config changes are saved
+back to the config file.
 
 ## Analytics
 
@@ -94,7 +99,7 @@ Run with a mounted config file and data directory:
 
 ```bash
 docker run --rm -p 8000:8000 \
-  -v ./config.json:/app/config/config.json:ro \
+  -v ./config.json:/app/config/config.json \
   -v ./data:/app/data \
   hades-ii-run-tracker
 ```
@@ -103,16 +108,28 @@ On PowerShell:
 
 ```powershell
 docker run --rm -p 8000:8000 `
-  -v ${PWD}/config.json:/app/config/config.json:ro `
+  -v ${PWD}/config.json:/app/config/config.json `
   -v ${PWD}/data:/app/data `
   hades-ii-run-tracker
 ```
 
-Back up `data/runs.json` if you care about the history.
+Mount `config.json` as writable if you want `/admin` changes to persist. Back up
+`config.json` and `data/runs.json` if you care about the history.
 
-## Admin Cleanup
+## Admin Dashboard
 
-Deleting a mistaken run is intentionally minimal. Set `ADMIN_CODE` and call:
+Open `/admin` and enter the configured `admin.password`. Admin access is kept in
+browser session storage, so closing the tab clears it.
+
+The admin dashboard can:
+
+- Add, edit, delete, and rotate access codes for users.
+- Block user deletion when that user still has logged runs.
+- Edit, delete, or reassign runs without needing the runner's access code.
+- Edit weapons, boons, image URLs, source URLs, and the default analytics range.
+- Export a JSON backup containing config and runs.
+
+Deleting a mistaken run can also be done with `ADMIN_CODE` and curl:
 
 ```bash
 curl -X DELETE \

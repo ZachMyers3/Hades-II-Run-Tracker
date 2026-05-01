@@ -17,15 +17,31 @@ class ConfigUser(BaseModel):
     access_code: str
 
 
+class AdminSettings(BaseModel):
+    password: str = ""
+
+
 class PublicUser(BaseModel):
     id: str
     display_name: str
+
+
+class AdminUser(ConfigUser):
+    run_count: int = 0
 
 
 class ConfigOption(BaseModel):
     name: str
     image_url: str | None = None
     source_url: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Option name cannot be blank.")
+        return value
 
 
 class AnalyticsSettings(BaseModel):
@@ -37,6 +53,7 @@ class TrackerConfig(BaseModel):
     weapons: list[ConfigOption] = Field(default_factory=list)
     boons: list[ConfigOption] = Field(default_factory=list)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
+    admin: AdminSettings = Field(default_factory=AdminSettings)
 
     @field_validator("weapons", "boons", mode="before")
     @classmethod
@@ -68,6 +85,38 @@ class PublicConfig(BaseModel):
     weapons: list[ConfigOption]
     boons: list[ConfigOption]
     sides: list[dict[str, str]]
+
+
+class AdminLogin(BaseModel):
+    password: str = Field(min_length=1)
+
+    @field_validator("password")
+    @classmethod
+    def strip_password(cls, value: str) -> str:
+        return value.strip()
+
+
+class AdminUserCreate(ConfigUser):
+    @field_validator("id", "display_name", "access_code")
+    @classmethod
+    def strip_required_user_fields(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Field cannot be blank.")
+        return value
+
+
+class AdminUserUpdate(BaseModel):
+    display_name: str = Field(min_length=1)
+    access_code: str = Field(min_length=1)
+
+    @field_validator("display_name", "access_code")
+    @classmethod
+    def strip_required_user_fields(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Field cannot be blank.")
+        return value
 
 
 class RunCreate(BaseModel):
@@ -102,6 +151,41 @@ class RunCreate(BaseModel):
         return cleaned
 
 
+class AdminRunUpdate(BaseModel):
+    user_id: str = Field(min_length=1)
+    side: RunSide
+    weapon: str | None = None
+    boons: list[str] = Field(default_factory=list)
+    notes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("user_id")
+    @classmethod
+    def strip_user_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Field cannot be blank.")
+        return value
+
+    @field_validator("weapon", "notes")
+    @classmethod
+    def blank_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        value = value.strip()
+        return value or None
+
+    @field_validator("boons")
+    @classmethod
+    def clean_boons(cls, values: list[str]) -> list[str]:
+        cleaned = []
+        for value in values:
+            boon = value.strip()
+            if boon and boon not in cleaned:
+                cleaned.append(boon)
+        return cleaned
+
+
 class RunRecord(BaseModel):
     id: str
     user_id: str
@@ -110,6 +194,20 @@ class RunRecord(BaseModel):
     boons: list[str] = Field(default_factory=list)
     notes: str | None = None
     created_at: str
+
+
+class AdminConfigUpdate(BaseModel):
+    weapons: list[ConfigOption] = Field(default_factory=list)
+    boons: list[ConfigOption] = Field(default_factory=list)
+    analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
+
+    @field_validator("weapons", "boons", mode="before")
+    @classmethod
+    def normalize_options(cls, values):
+        return [
+            {"name": value} if isinstance(value, str) else value
+            for value in values or []
+        ]
 
 
 class UserAnalytics(BaseModel):

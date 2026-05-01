@@ -597,6 +597,65 @@ button:disabled {
     color: #ff8f8f;
 }
 
+.admin-login-panel {
+    width: min(520px, 100%);
+    margin-inline: auto;
+}
+
+.admin-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: start;
+    justify-content: space-between;
+}
+
+.admin-inline-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    gap: 0.8rem;
+    align-items: end;
+    margin-bottom: 1rem;
+}
+
+.admin-list {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.admin-item {
+    border: 1px solid rgba(214, 169, 76, 0.18);
+    border-radius: 16px;
+    padding: 1rem;
+    background: var(--panel-strong);
+}
+
+.admin-user-form,
+.admin-run-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+
+.admin-item-heading {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.admin-item-heading h3 {
+    margin: 0;
+}
+
+.admin-wide-label,
+.admin-user-form .modal-actions,
+.admin-run-form .modal-actions {
+    grid-column: 1 / -1;
+}
+
 @media (max-width: 820px) {
     .hero,
     .layout {
@@ -622,5 +681,11 @@ button:disabled {
 
     .hero {
         padding-top: 2.5rem;
+    }
+
+    .admin-inline-form,
+    .admin-user-form,
+    .admin-run-form {
+        grid-template-columns: 1fr;
     }
 }

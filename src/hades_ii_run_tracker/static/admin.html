@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Admin | Hades II Run Tracker</title>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        <header class="hero">
+            <p class="eyebrow">House Records</p>
+            <h1>Admin Dashboard</h1>
+            <p>
+                Manage runners, clean up logged victories, tune config options,
+                and export backups.
+            </p>
+        </header>
+
+        <main class="layout">
+            <section id="login-panel" class="panel admin-login-panel">
+                <div class="panel-heading">
+                    <p class="eyebrow">Restricted</p>
+                    <h2>Enter Admin Password</h2>
+                </div>
+                <form id="admin-login-form" class="run-form">
+                    <label>
+                        Admin Password
+                        <input
+                            id="admin-password"
+                            type="password"
+                            autocomplete="off"
+                            required
+                        >
+                    </label>
+                    <div class="modal-actions">
+                        <button type="submit">Unlock Admin</button>
+                    </div>
+                    <p id="login-status" class="status" aria-live="polite"></p>
+                </form>
+            </section>
+
+            <section id="admin-panel" class="content-stack" hidden>
+                <section class="panel">
+                    <div class="admin-toolbar">
+                        <div class="panel-heading">
+                            <p class="eyebrow">Controls</p>
+                            <h2>Admin Actions</h2>
+                        </div>
+                        <div class="modal-actions">
+                            <button id="refresh-admin" type="button">Refresh</button>
+                            <button id="export-backup" type="button">Export Backup</button>
+                            <button id="logout-admin" class="danger-button" type="button">
+                                Log Out
+                            </button>
+                        </div>
+                    </div>
+                    <p id="admin-status" class="status" aria-live="polite"></p>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Friends</p>
+                        <h2>Users</h2>
+                    </div>
+                    <form id="add-user-form" class="admin-inline-form">
+                        <label>
+                            User ID
+                            <input id="new-user-id" name="id" required>
+                        </label>
+                        <label>
+                            Display Name
+                            <input id="new-user-display-name" name="display_name" required>
+                        </label>
+                        <label>
+                            Access Code
+                            <input id="new-user-access-code" name="access_code" required>
+                        </label>
+                        <button type="submit">Add User</button>
+                    </form>
+                    <div id="admin-users" class="admin-list"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Cleanup</p>
+                        <h2>Runs</h2>
+                    </div>
+                    <div id="admin-runs" class="admin-list"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <p class="eyebrow">Config</p>
+                        <h2>Options And Analytics</h2>
+                    </div>
+                    <form id="admin-config-form" class="run-form">
+                        <label>
+                            Default Analytics Range
+                            <input
+                                id="admin-date-range-days"
+                                type="number"
+                                min="1"
+                                max="365"
+                                required
+                            >
+                        </label>
+                        <label>
+                            Weapons JSON
+                            <textarea id="admin-weapons" rows="8" spellcheck="false"></textarea>
+                        </label>
+                        <label>
+                            Boons JSON
+                            <textarea id="admin-boons" rows="8" spellcheck="false"></textarea>
+                        </label>
+                        <div class="modal-actions">
+                            <button type="submit">Save Config</button>
+                        </div>
+                    </form>
+                </section>
+            </section>
+        </main>
+
+        <script src="/static/admin.js"></script>
+    </body>
+</html>
