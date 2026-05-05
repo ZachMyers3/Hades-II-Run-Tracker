@@ -520,6 +520,19 @@ button:disabled {
     font-size: 0.95rem;
 }
 
+.fear-analytics-title {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.fear-analytics-title span {
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-transform: none;
+}
+
 .bar-row {
     display: grid;
     grid-template-columns: minmax(5rem, 8rem) 1fr auto;
@@ -654,6 +667,32 @@ button:disabled {
 .admin-user-form .modal-actions,
 .admin-run-form .modal-actions {
     grid-column: 1 / -1;
+}
+
+.fear-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    object-fit: contain;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.fear-label-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.fear-field-label .fear-label-row {
+    margin-bottom: 0.25rem;
+}
+
+.run-fear-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.25rem 0;
+    font-size: 0.95rem;
 }
 
 @media (max-width: 820px) {

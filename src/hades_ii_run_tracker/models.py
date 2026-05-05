@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -30,6 +30,18 @@ class AdminUser(ConfigUser):
     run_count: int = 0
 
 
+DEFAULT_FEAR_IMAGE_URL = "/static/assets/fear/shrine-point.png"
+DEFAULT_FEAR_SOURCE_URL = "https://hades.fandom.com/wiki/Fear?file=ShrinePoint.png"
+
+
+def default_fear_option() -> "ConfigOption":
+    return ConfigOption(
+        name="Fear",
+        image_url=DEFAULT_FEAR_IMAGE_URL,
+        source_url=DEFAULT_FEAR_SOURCE_URL,
+    )
+
+
 class ConfigOption(BaseModel):
     name: str
     image_url: str | None = None
@@ -46,12 +58,18 @@ class ConfigOption(BaseModel):
 
 class AnalyticsSettings(BaseModel):
     date_range_days: int = Field(default=7, ge=1, le=365)
+    weighted_victory_fear_multiplier: float = Field(
+        default=0,
+        ge=0,
+        description="Per-run score = 1 + fear * multiplier when aggregating weighted victories.",
+    )
 
 
 class TrackerConfig(BaseModel):
     users: list[ConfigUser]
     weapons: list[ConfigOption] = Field(default_factory=list)
     boons: list[ConfigOption] = Field(default_factory=list)
+    fear: ConfigOption = Field(default_factory=default_fear_option)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     admin: AdminSettings = Field(default_factory=AdminSettings)
 
@@ -84,6 +102,7 @@ class PublicConfig(BaseModel):
     users: list[PublicUser]
     weapons: list[ConfigOption]
     boons: list[ConfigOption]
+    fear: ConfigOption
     sides: list[dict[str, str]]
 
 
@@ -125,6 +144,26 @@ class RunCreate(BaseModel):
     weapon: str | None = None
     boons: list[str] = Field(default_factory=list)
     notes: str | None = Field(default=None, max_length=500)
+    fear: int | None = Field(default=None, ge=0, le=99)
+
+    @field_validator("fear", mode="before")
+    @classmethod
+    def coerce_fear(cls, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            raise ValueError("Fear must be an integer.")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            try:
+                return int(stripped)
+            except ValueError as exc:
+                raise ValueError("Fear must be an integer.") from exc
+        raise ValueError("Fear must be an integer.")
 
     @field_validator("access_code")
     @classmethod
@@ -157,6 +196,26 @@ class AdminRunUpdate(BaseModel):
     weapon: str | None = None
     boons: list[str] = Field(default_factory=list)
     notes: str | None = Field(default=None, max_length=500)
+    fear: int = Field(default=0, ge=0, le=99)
+
+    @field_validator("fear", mode="before")
+    @classmethod
+    def coerce_fear_admin(cls, value):
+        if value is None or value == "":
+            return 0
+        if isinstance(value, bool):
+            raise ValueError("Fear must be an integer.")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return 0
+            try:
+                return int(stripped)
+            except ValueError as exc:
+                raise ValueError("Fear must be an integer.") from exc
+        raise ValueError("Fear must be an integer.")
 
     @field_validator("user_id")
     @classmethod
@@ -193,12 +252,33 @@ class RunRecord(BaseModel):
     weapon: str | None = None
     boons: list[str] = Field(default_factory=list)
     notes: str | None = None
+    fear: int = Field(default=0, ge=0, le=99)
     created_at: str
+
+    @field_validator("fear", mode="before")
+    @classmethod
+    def coerce_fear_record(cls, value):
+        if value is None or value == "":
+            return 0
+        if isinstance(value, bool):
+            raise ValueError("Fear must be an integer.")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return 0
+            try:
+                return int(stripped)
+            except ValueError as exc:
+                raise ValueError("Fear must be an integer.") from exc
+        raise ValueError("Fear must be an integer.")
 
 
 class AdminConfigUpdate(BaseModel):
     weapons: list[ConfigOption] = Field(default_factory=list)
     boons: list[ConfigOption] = Field(default_factory=list)
+    fear: ConfigOption | None = None
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
 
     @field_validator("weapons", "boons", mode="before")
@@ -254,6 +334,43 @@ class ExtraAnalytics(BaseModel):
     user_stats: list[UserExtraAnalytics]
 
 
+class FearUserRow(BaseModel):
+    user_id: str
+    display_name: str
+    run_count: int
+    avg_fear: float
+    max_fear: int
+
+
+class FearAnalytics(BaseModel):
+    avg_fear: float
+    max_fear: int
+    max_fear_user_id: str | None
+    max_fear_display_name: str | None
+    runs_with_fear_positive: int
+    pct_runs_fear_positive: float
+    avg_fear_topside: float
+    avg_fear_bottomside: float
+    max_fear_topside: int
+    max_fear_bottomside: int
+    fear_buckets: dict[str, int]
+    by_user: list[FearUserRow]
+    highest_avg_fear_user: FearUserRow | None
+    highest_max_fear_user: FearUserRow | None
+
+
+class WeightedVictoryUserRow(BaseModel):
+    user_id: str
+    display_name: str
+    weighted_total: float
+
+
+class WeightedVictoryAnalytics(BaseModel):
+    multiplier: float
+    total_weighted_score: float
+    by_user: list[WeightedVictoryUserRow]
+
+
 class Analytics(BaseModel):
     date_range_days: int
     total_runs: int
@@ -263,4 +380,14 @@ class Analytics(BaseModel):
     daily_runs: list[DateBucket]
     users: list[UserAnalytics]
     extra_metrics: ExtraAnalytics
+    fear: FearAnalytics
+    weighted_victories: WeightedVictoryAnalytics
     recent_runs: list[RunRecord]
+
+
+class AdminBackupImport(BaseModel):
+    """Body for POST /api/admin/import (same shape as export backup)."""
+
+    config: dict[str, Any]
+    runs: list[dict[str, Any]]
+    confirm_replace: bool = False

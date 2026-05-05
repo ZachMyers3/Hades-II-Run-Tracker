@@ -1,5 +1,7 @@
 const ADMIN_PASSWORD_KEY = "hadesAdminPassword";
 
+const DEFAULT_FEAR_ICON_URL = "/static/assets/fear/shrine-point.png";
+
 const state = {
     users: [],
     runs: [],
@@ -14,6 +16,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("logout-admin").addEventListener("click", logout);
     document.getElementById("refresh-admin").addEventListener("click", loadAdmin);
     document.getElementById("export-backup").addEventListener("click", exportBackup);
+    document.getElementById("import-backup").addEventListener("click", pickImportBackup);
+    document
+        .getElementById("import-backup-file")
+        .addEventListener("change", importBackupFromFile);
     document.getElementById("add-user-form").addEventListener("submit", addUser);
     document
         .getElementById("admin-config-form")
@@ -183,12 +189,22 @@ async function saveRun(event) {
     }
 
     const runId = form.dataset.runId;
+    const fearRaw = (form.elements["fear"]?.value || "").trim();
+    let fear = 0;
+    if (fearRaw !== "") {
+        const parsed = Number.parseInt(fearRaw, 10);
+        if (Number.isFinite(parsed)) {
+            fear = Math.min(99, Math.max(0, parsed));
+        }
+    }
+
     const payload = {
         user_id: form.elements["user_id"].value,
         side: form.elements["side"].value,
         weapon: form.elements["weapon"].value || null,
         boons: splitCsv(form.elements["boons"].value),
         notes: form.elements["notes"].value || null,
+        fear,
     };
 
     try {
@@ -230,21 +246,48 @@ async function saveConfig(event) {
 
     let weapons;
     let boons;
+    let fear;
     try {
         weapons = JSON.parse(document.getElementById("admin-weapons").value);
         boons = JSON.parse(document.getElementById("admin-boons").value);
+        fear = JSON.parse(document.getElementById("admin-fear").value);
     } catch (error) {
         setAdminStatus(`Invalid JSON: ${error.message}`, "error");
+        return;
+    }
+
+    if (
+        !fear ||
+        typeof fear !== "object" ||
+        typeof fear.name !== "string" ||
+        !fear.name.trim()
+    ) {
+        setAdminStatus("Fear JSON must be an object with a non-empty name.", "error");
         return;
     }
 
     const dateRangeDays = Number(
         document.getElementById("admin-date-range-days").value,
     );
+    const weightedMult = Number(
+        document.getElementById("admin-weighted-fear-multiplier").value,
+    );
+    if (!Number.isFinite(weightedMult) || weightedMult < 0) {
+        setAdminStatus(
+            "Weighted fear multiplier must be a non-negative number.",
+            "error",
+        );
+        return;
+    }
+
     const payload = {
         weapons,
         boons,
-        analytics: { date_range_days: dateRangeDays },
+        fear,
+        analytics: {
+            date_range_days: dateRangeDays,
+            weighted_victory_fear_multiplier: weightedMult,
+        },
     };
 
     try {
@@ -274,6 +317,69 @@ async function exportBackup() {
         link.click();
         URL.revokeObjectURL(url);
         setAdminStatus("Backup exported.", "success");
+    } catch (error) {
+        setAdminStatus(error.message, "error");
+    }
+}
+
+function pickImportBackup() {
+    document.getElementById("import-backup-file").click();
+}
+
+async function importBackupFromFile(event) {
+    const input = event.target;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) {
+        return;
+    }
+
+    let text;
+    try {
+        text = await file.text();
+    } catch (_error) {
+        setAdminStatus("Could not read file.", "error");
+        return;
+    }
+
+    let backup;
+    try {
+        backup = JSON.parse(text);
+    } catch (error) {
+        setAdminStatus(`Invalid JSON: ${error.message}`, "error");
+        return;
+    }
+
+    if (!backup.config || !Array.isArray(backup.runs)) {
+        setAdminStatus("Backup must include config and runs arrays.", "error");
+        return;
+    }
+
+    const hasData = state.users.length > 0 || state.runs.length > 0;
+    let confirm_replace = false;
+    if (hasData) {
+        const ok = window.confirm(
+            "Replace all data in the database with this backup? " +
+                "This deletes current users, runs, and settings. This cannot be undone.",
+        );
+        if (!ok) {
+            setAdminStatus("Import cancelled.", "");
+            return;
+        }
+        confirm_replace = true;
+    }
+
+    try {
+        await adminFetch("/api/admin/import", {
+            method: "POST",
+            body: JSON.stringify({
+                config: backup.config,
+                runs: backup.runs,
+                confirm_replace,
+            }),
+        });
+        await loadAdmin();
+        setAdminStatus("Backup imported.", "success");
     } catch (error) {
         setAdminStatus(error.message, "error");
     }
@@ -389,6 +495,20 @@ function renderRuns() {
                             Boons
                             <input name="boons" value="${escapeHtml(run.boons.join(", "))}">
                         </label>
+                        <label>
+                            <span class="fear-label-row">
+                                <img class="fear-icon" src="${escapeHtml(fearIconSrc())}" alt="" width="18" height="18">
+                                Fear
+                            </span>
+                            <input
+                                name="fear"
+                                type="number"
+                                min="0"
+                                max="99"
+                                value="${Number(run.fear) > 0 ? escapeHtml(String(run.fear)) : ""}"
+                                placeholder="0–99"
+                            >
+                        </label>
                         <label class="admin-wide-label">
                             Notes
                             <textarea name="notes" rows="2">${escapeHtml(run.notes || "")}</textarea>
@@ -414,6 +534,8 @@ function renderRuns() {
 function renderConfig() {
     document.getElementById("admin-date-range-days").value =
         state.config.analytics.date_range_days;
+    document.getElementById("admin-weighted-fear-multiplier").value =
+        state.config.analytics.weighted_victory_fear_multiplier ?? 0;
     document.getElementById("admin-weapons").value = JSON.stringify(
         state.config.weapons,
         null,
@@ -424,6 +546,16 @@ function renderConfig() {
         null,
         2,
     );
+    document.getElementById("admin-fear").value = JSON.stringify(
+        state.config.fear,
+        null,
+        2,
+    );
+}
+
+function fearIconSrc() {
+    const url = state.publicConfig?.fear?.image_url;
+    return url && String(url).trim() ? String(url).trim() : DEFAULT_FEAR_ICON_URL;
 }
 
 async function adminFetch(url, options = {}) {

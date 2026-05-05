@@ -1,3 +1,5 @@
+const DEFAULT_FEAR_ICON_URL = "/static/assets/fear/shrine-point.png";
+
 const state = {
     config: null,
     analytics: null,
@@ -50,6 +52,7 @@ async function loadDashboard() {
 
     state.config = config;
     state.analytics = analytics;
+    syncFearIconFromConfig(config);
     userNameById.clear();
     weaponByName.clear();
     boonByName.clear();
@@ -62,6 +65,18 @@ async function loadDashboard() {
     renderAnalytics(analytics);
     renderRecentRuns(analytics.recent_runs);
     setStatus("", "");
+}
+
+function syncFearIconFromConfig(config) {
+    const img = document.querySelector(".fear-field-label .fear-icon");
+    if (!img || !config?.fear?.image_url) {
+        return;
+    }
+    img.src = config.fear.image_url;
+}
+
+function fearIconUrl() {
+    return state.config?.fear?.image_url || DEFAULT_FEAR_ICON_URL;
 }
 
 async function refreshAnalytics(dateRangeDays) {
@@ -161,6 +176,7 @@ function renderAnalytics(analytics) {
         ),
         analyticsCard("Total Victories", `<p class="score">${analytics.total_runs}</p>`),
         analyticsCard("Quick Stats", renderExtraMetrics(analytics.extra_metrics)),
+        analyticsCard("Fear", renderFearAnalytics(analytics.fear)),
         analyticsCard(
             "Victories by Realm",
             renderVictoryBarChart(analytics.by_side),
@@ -205,6 +221,11 @@ function renderRecentRuns(runs) {
                     <div class="muted">
                         ${renderNamedAsset(run.weapon, weaponByName)} · ${formatDate(run.created_at)}
                     </div>
+                    ${
+                        Number(run.fear) > 0
+                            ? `<div class="run-fear-row"><img class="fear-icon" src="${escapeHtml(fearIconUrl())}" alt="" width="18" height="18"><span>Fear ${escapeHtml(String(run.fear))}</span></div>`
+                            : ""
+                    }
                     <div class="pill-list">${renderPills(run.boons, boonByName)}</div>
                     ${run.notes ? `<p>${escapeHtml(run.notes)}</p>` : ""}
                     <button
@@ -226,6 +247,20 @@ async function submitRun(event) {
 
     const form = event.currentTarget;
     const button = form.querySelector('button[type="submit"]');
+    const fearField = form.querySelector('input[name="fear"]');
+    const fearRaw = (
+        fearField && "value" in fearField ? fearField.value : ""
+    )
+        .toString()
+        .trim();
+    let fear = 0;
+    if (fearRaw !== "") {
+        const parsed = Number.parseInt(fearRaw, 10);
+        if (Number.isFinite(parsed)) {
+            fear = Math.min(99, Math.max(0, parsed));
+        }
+    }
+
     const payload = {
         access_code: document.getElementById("access-code").value,
         side: document.getElementById("side").value,
@@ -234,6 +269,7 @@ async function submitRun(event) {
             (input) => input.value,
         ),
         notes: document.getElementById("notes").value || null,
+        fear,
     };
 
     button.disabled = true;
@@ -287,6 +323,8 @@ function openEditRunModal(run) {
     setSelectedAsset("side", "side-selected", getSideOptions(), run.side);
     setSelectedAsset("weapon", "weapon-selected", getWeaponOptions(), run.weapon || "");
     document.getElementById("notes").value = run.notes || "";
+    document.getElementById("fear").value =
+        run.fear != null && Number(run.fear) > 0 ? String(run.fear) : "";
     document.querySelectorAll('input[name="boons"]').forEach((input) => {
         input.checked = run.boons.includes(input.value);
     });
@@ -693,6 +731,45 @@ function renderVictoryBarChart(values, assetMap = new Map()) {
                     })
                     .join("")}
             </svg>
+        </div>
+    `;
+}
+
+function renderFearAnalytics(fear) {
+    if (!fear) {
+        return '<p class="muted">No fear data yet.</p>';
+    }
+
+    const icon = `<img class="fear-icon fear-analytics-icon" src="${escapeHtml(fearIconUrl())}" alt="" width="20" height="20">`;
+    const avgLeader = fear.highest_avg_fear_user
+        ? `${escapeHtml(fear.highest_avg_fear_user.display_name)} (avg ${fear.highest_avg_fear_user.avg_fear})`
+        : "—";
+    const maxLeader = fear.highest_max_fear_user
+        ? `${escapeHtml(fear.highest_max_fear_user.display_name)} (max ${fear.highest_max_fear_user.max_fear})`
+        : "—";
+    const bucketParts = Object.entries(fear.fear_buckets || {}).map(
+        ([label, count]) => `${escapeHtml(label)}: ${count}`,
+    );
+    const bucketsText = bucketParts.length ? bucketParts.join(" · ") : "—";
+
+    const highestSingle =
+        fear.max_fear_display_name != null && fear.max_fear_display_name !== ""
+            ? `${fear.max_fear} (${escapeHtml(fear.max_fear_display_name)})`
+            : String(fear.max_fear);
+
+    return `
+        <div class="metric-list fear-analytics">
+            <div class="fear-analytics-title">${icon}<span>Fear overview</span></div>
+            <div><span>Average fear (all runs)</span><strong>${fear.avg_fear}</strong></div>
+            <div><span>Highest single fear</span><strong>${highestSingle}</strong></div>
+            <div><span>Runs with fear &gt; 0</span><strong>${fear.runs_with_fear_positive} (${fear.pct_runs_fear_positive}%)</strong></div>
+            <div><span>Avg fear · Topside</span><strong>${fear.avg_fear_topside}</strong></div>
+            <div><span>Avg fear · Bottomside</span><strong>${fear.avg_fear_bottomside}</strong></div>
+            <div><span>Max fear · Topside</span><strong>${fear.max_fear_topside}</strong></div>
+            <div><span>Max fear · Bottomside</span><strong>${fear.max_fear_bottomside}</strong></div>
+            <div><span>Highest avg fear</span><strong>${avgLeader}</strong></div>
+            <div><span>Highest max fear</span><strong>${maxLeader}</strong></div>
+            <div><span>Distribution</span><strong>${bucketsText}</strong></div>
         </div>
     `;
 }

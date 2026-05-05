@@ -43,8 +43,14 @@
       "source_url": "https://hades.fandom.com/wiki/File:CoatIcon.png"
     }
   ],
+  "fear": {
+    "name": "Fear",
+    "image_url": "/static/assets/fear/shrine-point.png",
+    "source_url": "https://hades.fandom.com/wiki/Fear?file=ShrinePoint.png"
+  },
   "analytics": {
-    "date_range_days": 7
+    "date_range_days": 7,
+    "weighted_victory_fear_multiplier": 0
   },
   "admin": {
     "password": "change-me"

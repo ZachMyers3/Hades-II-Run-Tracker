@@ -1,6 +1,6 @@
 import os
 import secrets
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from hmac import compare_digest
@@ -9,9 +9,13 @@ from uuid import uuid4
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 
-from .config import load_config, public_config, update_config
+from .app_store import SqliteAppStore, try_bootstrap_store_from_legacy_files
+from .config import get_config_path, public_config
+from .storage import get_data_path
 from .models import (
+    AdminBackupImport,
     AdminConfigUpdate,
     AdminLogin,
     AdminRunUpdate,
@@ -22,25 +26,48 @@ from .models import (
     ConfigUser,
     DateBucket,
     ExtraAnalytics,
+    FearAnalytics,
+    FearUserRow,
     RunCreate,
     RunRecord,
+    TrackerConfig,
     UserAnalytics,
     UserExtraAnalytics,
     UserMetric,
+    WeightedVictoryAnalytics,
+    WeightedVictoryUserRow,
 )
-from .storage import JsonRunStore
 
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app(
+    database_url: str | None = None,
     config_path: Path | str | None = None,
     data_path: Path | str | None = None,
+    bootstrap_legacy_json: bool = True,
 ) -> FastAPI:
     web_app = FastAPI(title="Hades II Run Tracker")
-    web_app.state.config_path = Path(config_path) if config_path else None
-    web_app.state.store = JsonRunStore(Path(data_path) if data_path else None)
+    store = SqliteAppStore.from_url(database_url)
+    store.init_db()
+    web_app.state.store = store
+    web_app.state.config_path = (
+        Path(config_path) if config_path is not None else None
+    )
+    web_app.state.data_path = (
+        Path(data_path) if data_path is not None else None
+    )
+    legacy_config = (
+        Path(config_path) if config_path is not None else get_config_path()
+    )
+    legacy_data = Path(data_path) if data_path is not None else get_data_path()
+    if bootstrap_legacy_json:
+        try_bootstrap_store_from_legacy_files(
+            store,
+            legacy_config,
+            legacy_data,
+        )
 
     web_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -214,6 +241,7 @@ def create_app(
             weapon=payload.weapon,
             boons=payload.boons,
             notes=payload.notes,
+            fear=payload.fear,
             created_at=existing_run.created_at,
         )
         saved_run = web_app.state.store.update_run(run_id, updated_run)
@@ -240,6 +268,7 @@ def create_app(
         return AdminConfigUpdate(
             weapons=config.weapons,
             boons=config.boons,
+            fear=config.fear,
             analytics=config.analytics,
         )
 
@@ -254,12 +283,15 @@ def create_app(
             config.weapons = payload.weapons
             config.boons = payload.boons
             config.analytics = payload.analytics
+            if payload.fear is not None:
+                config.fear = payload.fear
             return config
 
         config = _update_config_or_400(web_app, edit_config)
         return AdminConfigUpdate(
             weapons=config.weapons,
             boons=config.boons,
+            fear=config.fear,
             analytics=config.analytics,
         )
 
@@ -275,6 +307,36 @@ def create_app(
             "runs": [
                 run.model_dump(mode="json") for run in _sorted_runs(runs)
             ],
+        }
+
+    @web_app.post("/api/admin/import")
+    def admin_import(
+        payload: AdminBackupImport,
+        x_admin_password: str | None = Header(default=None),
+    ) -> dict[str, bool | int]:
+        _require_admin(web_app, x_admin_password)
+        store = web_app.state.store
+        if not store.is_empty() and not payload.confirm_replace:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Database is not empty. "
+                    "Send confirm_replace: true to wipe and import."
+                ),
+            )
+        try:
+            config = TrackerConfig.model_validate(payload.config)
+            runs = [RunRecord.model_validate(run) for run in payload.runs]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            store.replace_all_from_backup(config, runs)
+        except IntegrityError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "imported_users": len(config.users),
+            "imported_runs": len(runs),
+            "replaced": True,
         }
 
     @web_app.get("/api/runs", response_model=list[RunRecord])
@@ -300,6 +362,7 @@ def create_app(
             weapon=payload.weapon,
             boons=payload.boons,
             notes=payload.notes,
+            fear=_fear_for_create(payload),
             created_at=_utc_now(),
         )
         return web_app.state.store.append_run(run)
@@ -328,6 +391,7 @@ def create_app(
             weapon=payload.weapon,
             boons=payload.boons,
             notes=payload.notes,
+            fear=_fear_for_owner_update(payload, existing_run),
             created_at=existing_run.created_at,
         )
         saved_run = web_app.state.store.update_run(run_id, updated_run)
@@ -409,6 +473,12 @@ def create_app(
                 config.users,
                 daily_runs,
             ),
+            fear=_build_fear_analytics(runs, config.users),
+            weighted_victories=_build_weighted_victory_analytics(
+                runs,
+                config.users,
+                config.analytics.weighted_victory_fear_multiplier,
+            ),
             recent_runs=_sorted_runs(runs)[:10],
         )
 
@@ -432,10 +502,12 @@ def _validate_admin_password(config, password: str) -> None:
 
 def _update_config_or_400(web_app: FastAPI, updater):
     try:
-        return update_config(updater, web_app.state.config_path)
+        return web_app.state.store.update_config(updater)
     except HTTPException:
         raise
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IntegrityError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -461,13 +533,25 @@ def _generate_access_code(existing_codes: set[str]) -> str:
 
 def _load_runtime_config(web_app: FastAPI):
     try:
-        return load_config(web_app.state.config_path)
-    except (FileNotFoundError, ValueError) as exc:
+        return web_app.state.store.load_config()
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _fear_for_create(payload: RunCreate) -> int:
+    if "fear" not in payload.model_fields_set or payload.fear is None:
+        return 0
+    return payload.fear
+
+
+def _fear_for_owner_update(payload: RunCreate, existing_run: RunRecord) -> int:
+    if "fear" not in payload.model_fields_set:
+        return existing_run.fear
+    return 0 if payload.fear is None else payload.fear
+
+
 def _validate_options(
-    payload: RunCreate,
+    payload: RunCreate | AdminRunUpdate,
     weapons: list[str],
     boons: list[str],
 ) -> None:
@@ -612,6 +696,173 @@ def _build_extra_metrics(
         current_leader=leader,
         recent_momentum=recent_momentum,
         user_stats=user_stats,
+    )
+
+
+def _build_fear_analytics(
+    runs: list[RunRecord],
+    users: list[ConfigUser],
+) -> FearAnalytics:
+    n = len(runs)
+    if n == 0:
+        empty_rows = [
+            FearUserRow(
+                user_id=user.id,
+                display_name=user.display_name,
+                run_count=0,
+                avg_fear=0.0,
+                max_fear=0,
+            )
+            for user in users
+        ]
+        return FearAnalytics(
+            avg_fear=0.0,
+            max_fear=0,
+            max_fear_user_id=None,
+            max_fear_display_name=None,
+            runs_with_fear_positive=0,
+            pct_runs_fear_positive=0.0,
+            avg_fear_topside=0.0,
+            avg_fear_bottomside=0.0,
+            max_fear_topside=0,
+            max_fear_bottomside=0,
+            fear_buckets={"0": 0, "1-25": 0, "26-50": 0, "51-99": 0},
+            by_user=empty_rows,
+            highest_avg_fear_user=None,
+            highest_max_fear_user=None,
+        )
+
+    total_fear = sum(run.fear for run in runs)
+    avg_fear = round(total_fear / n, 2)
+    max_run = max(runs, key=lambda r: (r.fear, r.id))
+    runs_positive = sum(1 for run in runs if run.fear > 0)
+    pct_positive = round(100 * runs_positive / n, 1)
+
+    top_runs = [r for r in runs if r.side == "topside"]
+    bot_runs = [r for r in runs if r.side == "bottomside"]
+    avg_top = (
+        round(sum(r.fear for r in top_runs) / len(top_runs), 2) if top_runs else 0.0
+    )
+    avg_bot = (
+        round(sum(r.fear for r in bot_runs) / len(bot_runs), 2) if bot_runs else 0.0
+    )
+    max_top = max((r.fear for r in top_runs), default=0)
+    max_bot = max((r.fear for r in bot_runs), default=0)
+
+    buckets = {"0": 0, "1-25": 0, "26-50": 0, "51-99": 0}
+    for run in runs:
+        f = run.fear
+        if f == 0:
+            buckets["0"] += 1
+        elif f <= 25:
+            buckets["1-25"] += 1
+        elif f <= 50:
+            buckets["26-50"] += 1
+        else:
+            buckets["51-99"] += 1
+
+    by_user_rows: list[FearUserRow] = []
+    for user in users:
+        user_runs = [r for r in runs if r.user_id == user.id]
+        cnt = len(user_runs)
+        if cnt == 0:
+            by_user_rows.append(
+                FearUserRow(
+                    user_id=user.id,
+                    display_name=user.display_name,
+                    run_count=0,
+                    avg_fear=0.0,
+                    max_fear=0,
+                )
+            )
+        else:
+            ut = sum(r.fear for r in user_runs)
+            by_user_rows.append(
+                FearUserRow(
+                    user_id=user.id,
+                    display_name=user.display_name,
+                    run_count=cnt,
+                    avg_fear=round(ut / cnt, 2),
+                    max_fear=max(r.fear for r in user_runs),
+                )
+            )
+
+    eligible = [row for row in by_user_rows if row.run_count > 0]
+    highest_avg = (
+        max(
+            eligible,
+            key=lambda row: (row.avg_fear, row.run_count, row.display_name),
+        )
+        if eligible
+        else None
+    )
+    highest_max = (
+        max(
+            eligible,
+            key=lambda row: (row.max_fear, row.avg_fear, row.display_name),
+        )
+        if eligible
+        else None
+    )
+
+    max_owner = next(
+        (u for u in users if u.id == max_run.user_id),
+        None,
+    )
+    max_fear_user_id = max_run.user_id
+    max_fear_display_name = (
+        max_owner.display_name if max_owner else max_run.user_id
+    )
+
+    return FearAnalytics(
+        avg_fear=avg_fear,
+        max_fear=max_run.fear,
+        max_fear_user_id=max_fear_user_id,
+        max_fear_display_name=max_fear_display_name,
+        runs_with_fear_positive=runs_positive,
+        pct_runs_fear_positive=pct_positive,
+        avg_fear_topside=avg_top,
+        avg_fear_bottomside=avg_bot,
+        max_fear_topside=max_top,
+        max_fear_bottomside=max_bot,
+        fear_buckets=buckets,
+        by_user=by_user_rows,
+        highest_avg_fear_user=highest_avg,
+        highest_max_fear_user=highest_max,
+    )
+
+
+def _weighted_run_score(fear: int, multiplier: float) -> float:
+    return 1.0 + fear * multiplier
+
+
+def _build_weighted_victory_analytics(
+    runs: list[RunRecord],
+    users: list[ConfigUser],
+    multiplier: float,
+) -> WeightedVictoryAnalytics:
+    mult = float(multiplier)
+    totals_by_user = defaultdict(float)
+    grand = 0.0
+    for run in runs:
+        score = _weighted_run_score(run.fear, mult)
+        grand += score
+        totals_by_user[run.user_id] += score
+
+    rows = [
+        WeightedVictoryUserRow(
+            user_id=user.id,
+            display_name=user.display_name,
+            weighted_total=round(totals_by_user[user.id], 4),
+        )
+        for user in users
+    ]
+    rows.sort(key=lambda r: (-r.weighted_total, r.display_name))
+
+    return WeightedVictoryAnalytics(
+        multiplier=mult,
+        total_weighted_score=round(grand, 4),
+        by_user=rows,
     )
 
 

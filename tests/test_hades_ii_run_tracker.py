@@ -4,7 +4,8 @@ from datetime import UTC, datetime, timedelta
 from fastapi.testclient import TestClient
 
 from hades_ii_run_tracker.app import create_app
-from hades_ii_run_tracker.storage import JsonRunStore
+from hades_ii_run_tracker.app_store import SqliteAppStore
+from hades_ii_run_tracker.models import RunRecord, TrackerConfig
 
 
 def test_public_config_omits_access_codes(tmp_path):
@@ -23,6 +24,12 @@ def test_public_config_omits_access_codes(tmp_path):
         "image_url": "/static/assets/weapons/sister-blades.png",
         "source_url": None,
     }
+    assert payload["fear"]["name"] == "Fear"
+    assert payload["fear"]["image_url"] == "/static/assets/fear/shrine-point.png"
+    assert (
+        payload["fear"]["source_url"]
+        == "https://hades.fandom.com/wiki/Fear?file=ShrinePoint.png"
+    )
     assert "access_code" not in json.dumps(payload)
     assert "admin" not in json.dumps(payload)
     assert "letmein" not in json.dumps(payload)
@@ -75,8 +82,8 @@ def test_admin_user_list_includes_access_codes_and_run_counts(tmp_path):
     response = client.get("/api/admin/users", headers=admin_headers())
 
     assert response.status_code == 200
-    users = response.json()
-    assert users[0] == {
+    users = {user["id"]: user for user in response.json()}
+    assert users["zach"] == {
         "id": "zach",
         "display_name": "Zach",
         "access_code": "moonshot",
@@ -99,11 +106,15 @@ def test_admin_can_create_user_and_persist_to_config(tmp_path):
 
     assert response.status_code == 201
     assert response.json()["id"] == "than"
-    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert config["users"][2] == {
+    users = {
+        user["id"]: user
+        for user in client.get("/api/admin/users", headers=admin_headers()).json()
+    }
+    assert users["than"] == {
         "id": "than",
         "display_name": "Than",
         "access_code": "death",
+        "run_count": 0,
     }
 
 
@@ -144,9 +155,12 @@ def test_admin_can_update_user(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["display_name"] == "Zagreus"
-    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert config["users"][0]["display_name"] == "Zagreus"
-    assert config["users"][0]["access_code"] == "blood"
+    users = {
+        user["id"]: user
+        for user in client.get("/api/admin/users", headers=admin_headers()).json()
+    }
+    assert users["zach"]["display_name"] == "Zagreus"
+    assert users["zach"]["access_code"] == "blood"
 
 
 def test_admin_can_rotate_user_access_code(tmp_path):
@@ -160,8 +174,11 @@ def test_admin_can_rotate_user_access_code(tmp_path):
     assert response.status_code == 200
     rotated = response.json()
     assert rotated["access_code"] != "moonshot"
-    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert config["users"][0]["access_code"] == rotated["access_code"]
+    users = {
+        user["id"]: user
+        for user in client.get("/api/admin/users", headers=admin_headers()).json()
+    }
+    assert users["zach"]["access_code"] == rotated["access_code"]
 
 
 def test_admin_can_delete_user_without_runs(tmp_path):
@@ -170,8 +187,11 @@ def test_admin_can_delete_user_without_runs(tmp_path):
     response = client.delete("/api/admin/users/meg", headers=admin_headers())
 
     assert response.status_code == 204
-    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert [user["id"] for user in config["users"]] == ["zach"]
+    user_ids = [
+        user["id"]
+        for user in client.get("/api/admin/users", headers=admin_headers()).json()
+    ]
+    assert user_ids == ["zach"]
 
 
 def test_admin_delete_user_is_blocked_when_runs_exist(tmp_path):
@@ -190,8 +210,11 @@ def test_admin_delete_user_is_blocked_when_runs_exist(tmp_path):
     response = client.delete("/api/admin/users/meg", headers=admin_headers())
 
     assert response.status_code == 409
-    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert [user["id"] for user in config["users"]] == ["zach", "meg"]
+    user_ids = [
+        user["id"]
+        for user in client.get("/api/admin/users", headers=admin_headers()).json()
+    ]
+    assert user_ids == ["zach", "meg"]
 
 
 def test_admin_can_edit_and_reassign_run(tmp_path):
@@ -203,6 +226,7 @@ def test_admin_can_edit_and_reassign_run(tmp_path):
                 "zach",
                 "topside",
                 created_at="2026-04-29T12:00:00Z",
+                fear=3,
             )
         ],
     )
@@ -216,6 +240,7 @@ def test_admin_can_edit_and_reassign_run(tmp_path):
             "weapon": "Moonstone Axe",
             "boons": ["Zeus"],
             "notes": "Admin cleanup.",
+            "fear": 88,
         },
     )
 
@@ -225,6 +250,7 @@ def test_admin_can_edit_and_reassign_run(tmp_path):
     assert updated["side"] == "bottomside"
     assert updated["weapon"] == "Moonstone Axe"
     assert updated["created_at"] == "2026-04-29T12:00:00Z"
+    assert updated["fear"] == 88
 
 
 def test_admin_can_delete_run(tmp_path):
@@ -265,15 +291,20 @@ def test_admin_can_update_options_and_analytics(tmp_path):
     )
 
     assert response.status_code == 200
-    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-    assert config["weapons"] == [
+    saved = client.get("/api/admin/config", headers=admin_headers()).json()
+    assert saved["weapons"] == [
         {
             "name": "Black Coat",
             "image_url": "/static/assets/weapons/black-coat.png",
             "source_url": None,
         }
     ]
-    assert config["analytics"] == {"date_range_days": 14}
+    assert saved["analytics"] == {
+        "date_range_days": 14,
+        "weighted_victory_fear_multiplier": 0,
+    }
+    assert saved["fear"]["name"] == "Fear"
+    assert saved["fear"]["image_url"] == "/static/assets/fear/shrine-point.png"
 
 
 def test_admin_export_includes_config_and_runs(tmp_path):
@@ -285,6 +316,7 @@ def test_admin_export_includes_config_and_runs(tmp_path):
                 "zach",
                 "topside",
                 created_at="2026-04-29T12:00:00Z",
+                fear=7,
             )
         ],
     )
@@ -295,6 +327,7 @@ def test_admin_export_includes_config_and_runs(tmp_path):
     backup = response.json()
     assert backup["config"]["admin"]["password"] == "letmein"
     assert backup["runs"][0]["id"] == "run-1"
+    assert backup["runs"][0]["fear"] == 7
 
 
 def test_valid_access_code_creates_run(tmp_path):
@@ -308,6 +341,7 @@ def test_valid_access_code_creates_run(tmp_path):
             "weapon": "Sister Blades",
             "boons": ["Aphrodite", "Apollo"],
             "notes": "Knife night.",
+            "fear": 42,
         },
     )
 
@@ -316,10 +350,27 @@ def test_valid_access_code_creates_run(tmp_path):
     assert created["user_id"] == "zach"
     assert created["side"] == "topside"
     assert created["weapon"] == "Sister Blades"
+    assert created["fear"] == 42
 
     runs = client.get("/api/runs").json()
     assert len(runs) == 1
     assert runs[0]["id"] == created["id"]
+    assert runs[0]["fear"] == 42
+
+
+def test_create_run_rejects_fear_above_max(tmp_path):
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/runs",
+        json={
+            "access_code": "moonshot",
+            "side": "topside",
+            "fear": 100,
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_invalid_access_code_is_rejected(tmp_path):
@@ -343,6 +394,7 @@ def test_valid_owner_access_code_updates_run(tmp_path):
                 "zach",
                 "topside",
                 created_at="2026-04-29T12:00:00Z",
+                fear=10,
             )
         ],
     )
@@ -355,6 +407,7 @@ def test_valid_owner_access_code_updates_run(tmp_path):
             "weapon": "Moonstone Axe",
             "boons": ["Zeus"],
             "notes": "Corrected details.",
+            "fear": 55,
         },
     )
 
@@ -367,6 +420,7 @@ def test_valid_owner_access_code_updates_run(tmp_path):
     assert updated["boons"] == ["Zeus"]
     assert updated["notes"] == "Corrected details."
     assert updated["created_at"] == "2026-04-29T12:00:00Z"
+    assert updated["fear"] == 55
 
 
 def test_wrong_access_code_does_not_update_run(tmp_path):
@@ -443,6 +497,100 @@ def test_wrong_access_code_does_not_delete_run(tmp_path):
 
     assert response.status_code == 403
     assert len(client.get("/api/runs").json()) == 1
+
+
+def test_analytics_includes_fear_stats(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "r1",
+                "zach",
+                "topside",
+                created_at="2026-04-28T12:00:00Z",
+                fear=10,
+            ),
+            sample_run(
+                "r2",
+                "meg",
+                "bottomside",
+                created_at="2026-04-29T12:00:00Z",
+                fear=30,
+            ),
+            sample_run(
+                "r3",
+                "zach",
+                "topside",
+                created_at="2026-04-30T12:00:00Z",
+                fear=0,
+            ),
+        ],
+    )
+
+    fear = client.get("/api/analytics").json()["fear"]
+    assert fear["avg_fear"] == 13.33
+    assert fear["max_fear"] == 30
+    assert fear["max_fear_user_id"] == "meg"
+    assert fear["max_fear_display_name"] == "Meg"
+    assert fear["runs_with_fear_positive"] == 2
+    assert fear["pct_runs_fear_positive"] == 66.7
+    assert fear["avg_fear_topside"] == 5.0
+    assert fear["avg_fear_bottomside"] == 30.0
+    assert fear["max_fear_topside"] == 10
+    assert fear["max_fear_bottomside"] == 30
+    assert fear["highest_avg_fear_user"]["user_id"] == "meg"
+    assert fear["highest_max_fear_user"]["user_id"] == "meg"
+    assert fear["fear_buckets"]["0"] == 1
+    assert fear["fear_buckets"]["1-25"] == 1
+    assert fear["fear_buckets"]["26-50"] == 1
+    assert fear["fear_buckets"]["51-99"] == 0
+
+
+def test_analytics_weighted_victories_use_multiplier(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "r1",
+                "zach",
+                "topside",
+                created_at="2026-04-28T12:00:00Z",
+                fear=0,
+            ),
+            sample_run(
+                "r2",
+                "zach",
+                "topside",
+                created_at="2026-04-29T12:00:00Z",
+                fear=12,
+            ),
+        ],
+    )
+    cfg = client.get("/api/admin/config", headers=admin_headers()).json()
+    cfg["analytics"]["weighted_victory_fear_multiplier"] = 0.05
+    assert (
+        client.put("/api/admin/config", headers=admin_headers(), json=cfg).status_code
+        == 200
+    )
+
+    weighted = client.get("/api/analytics").json()["weighted_victories"]
+    assert weighted["multiplier"] == 0.05
+    assert weighted["total_weighted_score"] == 2.6
+    by_user = {row["user_id"]: row["weighted_total"] for row in weighted["by_user"]}
+    assert by_user["zach"] == 2.6
+    assert by_user["meg"] == 0.0
+
+
+def test_admin_config_updates_weighted_multiplier(tmp_path):
+    client = make_client(tmp_path)
+    cfg = client.get("/api/admin/config", headers=admin_headers()).json()
+    cfg["analytics"]["weighted_victory_fear_multiplier"] = 0.075
+    assert (
+        client.put("/api/admin/config", headers=admin_headers(), json=cfg).status_code
+        == 200
+    )
+    saved = client.get("/api/admin/config", headers=admin_headers()).json()
+    assert saved["analytics"]["weighted_victory_fear_multiplier"] == 0.075
 
 
 def test_analytics_counts_runs(tmp_path):
@@ -552,21 +700,117 @@ def test_daily_buckets_include_empty_days_and_counts(tmp_path):
     assert [bucket["cumulative_total"] for bucket in buckets] == [0, 1, 3]
 
 
-def test_json_storage_initializes_when_missing(tmp_path):
-    store = JsonRunStore(tmp_path / "missing" / "runs.json")
-
+def test_sqlite_store_returns_empty_runs_when_seeded_without_runs(tmp_path):
+    database_url = f"sqlite:///{(tmp_path / 'store.sqlite').as_posix()}"
+    store = SqliteAppStore.from_url(database_url)
+    store.init_db()
+    store.replace_all_from_backup(
+        TrackerConfig.model_validate(sample_config()),
+        [],
+    )
     assert store.list_runs() == []
 
 
 def make_client(tmp_path, config=None, runs=None) -> TestClient:
-    config_path = tmp_path / "config.json"
-    data_path = tmp_path / "runs.json"
-    config_path.write_text(
-        json.dumps(config or sample_config()), encoding="utf-8"
+    database_url = f"sqlite:///{(tmp_path / 'test.sqlite').as_posix()}"
+    cfg = TrackerConfig.model_validate(config or sample_config())
+    run_records = (
+        [RunRecord.model_validate(run) for run in runs]
+        if runs is not None
+        else []
     )
-    if runs is not None:
-        data_path.write_text(json.dumps({"runs": runs}), encoding="utf-8")
-    return TestClient(create_app(config_path=config_path, data_path=data_path))
+    app = create_app(database_url=database_url, bootstrap_legacy_json=False)
+    app.state.store.replace_all_from_backup(cfg, run_records)
+    return TestClient(app)
+
+
+def test_admin_import_requires_password(tmp_path):
+    client = make_client(tmp_path)
+    response = client.post(
+        "/api/admin/import",
+        json={"config": sample_config(), "runs": []},
+    )
+    assert response.status_code == 403
+
+
+def test_admin_import_rejects_nonempty_database_without_confirm(tmp_path):
+    client = make_client(tmp_path)
+    backup = client.get("/api/admin/export", headers=admin_headers()).json()
+    response = client.post(
+        "/api/admin/import",
+        headers=admin_headers(),
+        json={
+            "config": backup["config"],
+            "runs": backup["runs"],
+            "confirm_replace": False,
+        },
+    )
+    assert response.status_code == 409
+
+
+def test_admin_import_with_confirm_replaces_database(tmp_path):
+    client = make_client(tmp_path)
+    new_cfg = sample_config()
+    new_cfg["users"] = [
+        {"id": "solo", "display_name": "Solo", "access_code": "solo-code"},
+    ]
+    response = client.post(
+        "/api/admin/import",
+        headers=admin_headers(),
+        json={
+            "config": new_cfg,
+            "runs": [],
+            "confirm_replace": True,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["imported_users"] == 1
+    public = client.get("/api/config/public").json()
+    assert [user["id"] for user in public["users"]] == ["solo"]
+
+
+def test_admin_import_roundtrip_preserves_fear(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "run-1",
+                "zach",
+                "topside",
+                created_at="2026-04-29T12:00:00Z",
+                fear=12,
+            ),
+        ],
+    )
+    backup = client.get("/api/admin/export", headers=admin_headers()).json()
+    assert backup["runs"][0]["fear"] == 12
+
+    response = client.post(
+        "/api/admin/import",
+        headers=admin_headers(),
+        json={
+            "config": backup["config"],
+            "runs": backup["runs"],
+            "confirm_replace": True,
+        },
+    )
+    assert response.status_code == 200
+    runs = client.get("/api/runs").json()
+    assert runs[0]["fear"] == 12
+
+
+def test_admin_import_rejects_invalid_config(tmp_path):
+    client = make_client(tmp_path)
+    response = client.post(
+        "/api/admin/import",
+        headers=admin_headers(),
+        json={
+            "config": {"users": "not-a-list"},
+            "runs": [],
+            "confirm_replace": True,
+        },
+    )
+    assert response.status_code == 400
 
 
 def sample_config() -> dict:
@@ -611,8 +855,10 @@ def sample_run(
     user_id: str,
     side: str,
     created_at: str,
+    *,
+    fear: int | None = None,
 ) -> dict:
-    return {
+    row = {
         "id": run_id,
         "user_id": user_id,
         "side": side,
@@ -621,3 +867,6 @@ def sample_run(
         "notes": None,
         "created_at": created_at,
     }
+    if fear is not None:
+        row["fear"] = fear
+    return row

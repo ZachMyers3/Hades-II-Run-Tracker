@@ -8,7 +8,7 @@ docstring-code-format = true
 
 [tool.poetry]
 name = "hades-ii-run-tracker"
-description = "A simple, for-fun website where a small group of friends can log and compare their Hades II victories. No complicated auth — just access codes you manage in a config file. FastAPI backend, flat JSON storage, plain HTML/CSS/JS frontend."
+description = "A simple, for-fun website where a small group of friends can log and compare their Hades II victories. No complicated auth — just access codes you manage in the admin UI. FastAPI backend, SQLite storage, plain HTML/CSS/JS frontend."
 version = "0.1.0"
 authors = ["Zachary Myers <zachmyers@woosterbrush.com>"]
 readme = "README.md"
@@ -27,13 +27,20 @@ packages = [
     { include = "hades_ii_run_tracker", from = "src" },
     { include = "tests", format = "sdist" },
 ]
-include = ["src/hades_ii_run_tracker/static/**/*"]
+include = [
+    "src/hades_ii_run_tracker/static/**/*",
+    "src/hades_ii_run_tracker/alembic.ini",
+    "src/hades_ii_run_tracker/alembic/**/*.py",
+    "src/hades_ii_run_tracker/alembic/**/*.mako",
+]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<=3.13"
 fastapi = ">=0.110"
 uvicorn = { extras = ["standard"], version = ">=0.29" }
 typer = ">=0.3.2"
+sqlalchemy = ">=2.0"
+alembic = ">=1.13"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=6.2.4"

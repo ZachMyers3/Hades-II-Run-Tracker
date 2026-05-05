@@ -62,6 +62,7 @@ def public_config(config: TrackerConfig) -> PublicConfig:
         users=config.public_users(),
         weapons=config.weapons,
         boons=config.boons,
+        fear=config.fear,
         sides=SIDES,
     )
 

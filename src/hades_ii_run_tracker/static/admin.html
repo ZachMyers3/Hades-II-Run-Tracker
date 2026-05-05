@@ -12,7 +12,7 @@
             <h1>Admin Dashboard</h1>
             <p>
                 Manage runners, clean up logged victories, tune config options,
-                and export backups.
+                and export or import JSON backups.
             </p>
         </header>
 
@@ -49,6 +49,13 @@
                         <div class="modal-actions">
                             <button id="refresh-admin" type="button">Refresh</button>
                             <button id="export-backup" type="button">Export Backup</button>
+                            <button id="import-backup" type="button">Import Backup…</button>
+                            <input
+                                id="import-backup-file"
+                                type="file"
+                                accept="application/json,.json"
+                                hidden
+                            >
                             <button id="logout-admin" class="danger-button" type="button">
                                 Log Out
                             </button>
@@ -105,12 +112,30 @@
                             >
                         </label>
                         <label>
+                            Weighted victory fear multiplier
+                            <input
+                                id="admin-weighted-fear-multiplier"
+                                type="number"
+                                min="0"
+                                step="0.001"
+                                value="0"
+                                required
+                            >
+                            <span class="muted">
+                                Each run scores <code>1 + fear × multiplier</code> in weighted totals (API only for now).
+                            </span>
+                        </label>
+                        <label>
                             Weapons JSON
                             <textarea id="admin-weapons" rows="8" spellcheck="false"></textarea>
                         </label>
                         <label>
                             Boons JSON
                             <textarea id="admin-boons" rows="8" spellcheck="false"></textarea>
+                        </label>
+                        <label>
+                            Fear asset JSON
+                            <textarea id="admin-fear" rows="4" spellcheck="false"></textarea>
                         </label>
                         <div class="modal-actions">
                             <button type="submit">Save Config</button>
