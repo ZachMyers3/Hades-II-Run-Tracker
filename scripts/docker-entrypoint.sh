@@ -15,7 +15,7 @@ if [ "$(id -u)" = "0" ] && [ "${PUID:-0}" != "0" ]; then
         useradd \
             --uid "${PUID}" \
             --gid "${PGID}" \
-            --home-dir /app \
+            --home-dir /app/data \
             --no-create-home \
             --shell /usr/sbin/nologin \
             "${APP_USER}"
@@ -23,10 +23,15 @@ if [ "$(id -u)" = "0" ] && [ "${PUID:-0}" != "0" ]; then
 
     APP_USER_NAME="$(getent passwd "${PUID}" | cut -d: -f1)"
 
+    mkdir -p /app/data/.cache
     chown -R "${APP_USER_NAME}:${APP_GROUP_NAME}" /app/config /app/data \
         || echo "Warning: could not update ownership for /app/config or /app/data"
 
-    exec gosu "${APP_USER_NAME}:${APP_GROUP_NAME}" "$@"
+    # /app is root-owned; only config/data are chowned. If HOME=/app, tools that
+    # write under ~/app (e.g. $HOME/app) hit Permission denied on /app/app.
+    exec gosu "${APP_USER_NAME}:${APP_GROUP_NAME}" \
+        env HOME=/app/data XDG_CACHE_HOME=/app/data/.cache \
+        "$@"
 fi
 
 exec "$@"
