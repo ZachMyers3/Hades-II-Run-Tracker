@@ -28,6 +28,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("admin-users").addEventListener("click", handleUserClick);
     document.getElementById("admin-runs").addEventListener("submit", saveRun);
     document.getElementById("admin-runs").addEventListener("click", handleRunClick);
+    document
+        .getElementById("admin-recalculate-scores")
+        .addEventListener("click", recalculateScores);
 
     if (getPassword()) {
         showAdmin();
@@ -269,12 +272,23 @@ async function saveConfig(event) {
     const dateRangeDays = Number(
         document.getElementById("admin-date-range-days").value,
     );
-    const weightedMult = Number(
-        document.getElementById("admin-weighted-fear-multiplier").value,
+    const fearWeight = Number(document.getElementById("admin-fear-weight").value);
+    const runTop = Number(
+        document.getElementById("admin-run-amount-topside").value,
     );
-    if (!Number.isFinite(weightedMult) || weightedMult < 0) {
+    const runBot = Number(
+        document.getElementById("admin-run-amount-bottomside").value,
+    );
+    if (
+        !Number.isFinite(fearWeight) ||
+        fearWeight < 0 ||
+        !Number.isFinite(runTop) ||
+        runTop < 0 ||
+        !Number.isFinite(runBot) ||
+        runBot < 0
+    ) {
         setAdminStatus(
-            "Weighted fear multiplier must be a non-negative number.",
+            "Scoring weights must be finite non-negative numbers.",
             "error",
         );
         return;
@@ -286,7 +300,9 @@ async function saveConfig(event) {
         fear,
         analytics: {
             date_range_days: dateRangeDays,
-            weighted_victory_fear_multiplier: weightedMult,
+            fear_weight: fearWeight,
+            run_amount_topside: runTop,
+            run_amount_bottomside: runBot,
         },
     };
 
@@ -297,6 +313,21 @@ async function saveConfig(event) {
         });
         await loadAdmin();
         setAdminStatus("Config saved.", "success");
+    } catch (error) {
+        setAdminStatus(error.message, "error");
+    }
+}
+
+async function recalculateScores() {
+    try {
+        const result = await adminFetch("/api/admin/recalculate-scores", {
+            method: "POST",
+        });
+        await loadAdmin();
+        setAdminStatus(
+            `Recalculated scores for ${result.runs_updated} run(s).`,
+            "success",
+        );
     } catch (error) {
         setAdminStatus(error.message, "error");
     }
@@ -534,8 +565,12 @@ function renderRuns() {
 function renderConfig() {
     document.getElementById("admin-date-range-days").value =
         state.config.analytics.date_range_days;
-    document.getElementById("admin-weighted-fear-multiplier").value =
-        state.config.analytics.weighted_victory_fear_multiplier ?? 0;
+    document.getElementById("admin-fear-weight").value =
+        state.config.analytics.fear_weight ?? 1;
+    document.getElementById("admin-run-amount-topside").value =
+        state.config.analytics.run_amount_topside ?? 1.3;
+    document.getElementById("admin-run-amount-bottomside").value =
+        state.config.analytics.run_amount_bottomside ?? 1;
     document.getElementById("admin-weapons").value = JSON.stringify(
         state.config.weapons,
         null,

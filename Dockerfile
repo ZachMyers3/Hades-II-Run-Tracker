@@ -4,16 +4,16 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HADES_CONFIG_PATH=/app/config/config.json
 ENV HADES_DATA_PATH=/app/data/runs.json
-ENV HADES_DATABASE_URL=sqlite:///app/data/hades.sqlite
+# Four slashes: absolute /app/data/... (three slashes make SQLAlchemy treat
+# "app/data/..." as cwd-relative → /app/app/data/... with WORKDIR /app).
+ENV HADES_DATABASE_URL=sqlite:////app/data/hades.sqlite
 ENV PUID=1000
 ENV PGID=1000
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gosu \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/config /app/data
+# Privilege drop uses setpriv(1) from util-linux (already in the base image).
+RUN mkdir -p /app/config /app/data
 
 COPY pyproject.toml README.md ./
 COPY src ./src

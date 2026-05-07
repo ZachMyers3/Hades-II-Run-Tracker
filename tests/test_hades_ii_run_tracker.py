@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 
 from hades_ii_run_tracker.app import create_app
 from hades_ii_run_tracker.app_store import SqliteAppStore
-from hades_ii_run_tracker.models import RunRecord, TrackerConfig
+from hades_ii_run_tracker.models import AnalyticsSettings, RunRecord, TrackerConfig
+from hades_ii_run_tracker.scoring import compute_win_score, display_points
 
 
 def test_public_config_omits_access_codes(tmp_path):
@@ -251,6 +252,11 @@ def test_admin_can_edit_and_reassign_run(tmp_path):
     assert updated["weapon"] == "Moonstone Axe"
     assert updated["created_at"] == "2026-04-29T12:00:00Z"
     assert updated["fear"] == 88
+    assert updated["computed_win_score"] == compute_win_score(
+        "bottomside",
+        88,
+        AnalyticsSettings(),
+    )
 
 
 def test_admin_can_delete_run(tmp_path):
@@ -301,7 +307,9 @@ def test_admin_can_update_options_and_analytics(tmp_path):
     ]
     assert saved["analytics"] == {
         "date_range_days": 14,
-        "weighted_victory_fear_multiplier": 0,
+        "fear_weight": 1.0,
+        "run_amount_topside": 1.3,
+        "run_amount_bottomside": 1.0,
     }
     assert saved["fear"]["name"] == "Fear"
     assert saved["fear"]["image_url"] == "/static/assets/fear/shrine-point.png"
@@ -328,6 +336,7 @@ def test_admin_export_includes_config_and_runs(tmp_path):
     assert backup["config"]["admin"]["password"] == "letmein"
     assert backup["runs"][0]["id"] == "run-1"
     assert backup["runs"][0]["fear"] == 7
+    assert "computed_win_score" in backup["runs"][0]
 
 
 def test_valid_access_code_creates_run(tmp_path):
@@ -351,6 +360,8 @@ def test_valid_access_code_creates_run(tmp_path):
     assert created["side"] == "topside"
     assert created["weapon"] == "Sister Blades"
     assert created["fear"] == 42
+    expected_score = compute_win_score("topside", 42, AnalyticsSettings())
+    assert created["computed_win_score"] == expected_score
 
     runs = client.get("/api/runs").json()
     assert len(runs) == 1
@@ -546,7 +557,7 @@ def test_analytics_includes_fear_stats(tmp_path):
     assert fear["fear_buckets"]["51-99"] == 0
 
 
-def test_analytics_weighted_victories_use_multiplier(tmp_path):
+def test_analytics_win_score_leaderboard_sums_stored_display_points(tmp_path):
     client = make_client(
         tmp_path,
         runs=[
@@ -567,30 +578,85 @@ def test_analytics_weighted_victories_use_multiplier(tmp_path):
         ],
     )
     cfg = client.get("/api/admin/config", headers=admin_headers()).json()
-    cfg["analytics"]["weighted_victory_fear_multiplier"] = 0.05
+    cfg["analytics"]["fear_weight"] = 2.0
     assert (
         client.put("/api/admin/config", headers=admin_headers(), json=cfg).status_code
         == 200
     )
 
-    weighted = client.get("/api/analytics").json()["weighted_victories"]
-    assert weighted["multiplier"] == 0.05
-    assert weighted["total_weighted_score"] == 2.6
-    by_user = {row["user_id"]: row["weighted_total"] for row in weighted["by_user"]}
-    assert by_user["zach"] == 2.6
-    assert by_user["meg"] == 0.0
+    analytics = client.get("/api/analytics").json()
+    wsl = analytics["win_score_leaderboard"]
+    settings = AnalyticsSettings()
+    s1 = compute_win_score("topside", 0, settings)
+    s2 = compute_win_score("topside", 12, settings)
+    expected_grand = display_points(s1) + display_points(s2)
+    assert wsl["grand_total_display_points"] == expected_grand
+    by_user = {row["user_id"]: row["display_points_total"] for row in wsl["by_user"]}
+    assert by_user["zach"] == expected_grand
+    assert by_user["meg"] == 0
+    assert wsl["settings"]["fear_weight"] == 2.0
 
 
-def test_admin_config_updates_weighted_multiplier(tmp_path):
+def test_admin_config_updates_fear_weight(tmp_path):
     client = make_client(tmp_path)
     cfg = client.get("/api/admin/config", headers=admin_headers()).json()
-    cfg["analytics"]["weighted_victory_fear_multiplier"] = 0.075
+    cfg["analytics"]["fear_weight"] = 1.5
     assert (
         client.put("/api/admin/config", headers=admin_headers(), json=cfg).status_code
         == 200
     )
     saved = client.get("/api/admin/config", headers=admin_headers()).json()
-    assert saved["analytics"]["weighted_victory_fear_multiplier"] == 0.075
+    assert saved["analytics"]["fear_weight"] == 1.5
+
+
+def test_recalculate_scores_updates_stored_totals(tmp_path):
+    client = make_client(
+        tmp_path,
+        runs=[
+            sample_run(
+                "r1",
+                "zach",
+                "topside",
+                created_at="2026-04-28T12:00:00Z",
+                fear=30,
+            ),
+        ],
+    )
+    settings_before = AnalyticsSettings()
+    grand_before = client.get("/api/analytics").json()["win_score_leaderboard"][
+        "grand_total_display_points"
+    ]
+    assert grand_before == display_points(
+        compute_win_score("topside", 30, settings_before)
+    )
+
+    cfg = client.get("/api/admin/config", headers=admin_headers()).json()
+    cfg["analytics"]["fear_weight"] = 2.0
+    assert (
+        client.put("/api/admin/config", headers=admin_headers(), json=cfg).status_code
+        == 200
+    )
+    grand_mid = client.get("/api/analytics").json()["win_score_leaderboard"][
+        "grand_total_display_points"
+    ]
+    assert grand_mid == grand_before
+
+    response = client.post(
+        "/api/admin/recalculate-scores",
+        headers=admin_headers(),
+    )
+    assert response.status_code == 200
+    assert response.json()["runs_updated"] == 1
+
+    settings_after = AnalyticsSettings(fear_weight=2.0)
+    expected_after = display_points(
+        compute_win_score("topside", 30, settings_after)
+    )
+    grand_after = client.get("/api/analytics").json()["win_score_leaderboard"][
+        "grand_total_display_points"
+    ]
+    assert grand_after == expected_after
+    assert grand_after != grand_before
 
 
 def test_analytics_counts_runs(tmp_path):
@@ -627,6 +693,11 @@ def test_analytics_counts_runs(tmp_path):
     assert analytics["users"][0]["total"] == 1
     assert analytics["users"][1]["bottomside"] == 1
     assert analytics["extra_metrics"]["current_leader"]["total"] == 1
+    stacked = analytics["win_score_stacked_by_user"]
+    assert len(stacked) == 2
+    by_id = {row["user_id"]: row for row in stacked}
+    assert by_id["zach"]["topside_display_points"] >= 1
+    assert by_id["meg"]["bottomside_display_points"] >= 1
 
 
 def test_custom_analytics_config_changes_default_bucket_count(tmp_path):
@@ -867,6 +938,8 @@ def sample_run(
         "notes": None,
         "created_at": created_at,
     }
+    fear_val = 0 if fear is None else fear
     if fear is not None:
         row["fear"] = fear
+    row["computed_win_score"] = compute_win_score(side, fear_val, AnalyticsSettings())
     return row

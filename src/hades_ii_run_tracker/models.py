@@ -58,10 +58,20 @@ class ConfigOption(BaseModel):
 
 class AnalyticsSettings(BaseModel):
     date_range_days: int = Field(default=7, ge=1, le=365)
-    weighted_victory_fear_multiplier: float = Field(
-        default=0,
+    fear_weight: float = Field(
+        default=1.0,
         ge=0,
-        description="Per-run score = 1 + fear * multiplier when aggregating weighted victories.",
+        description="Multiplier for fear contribution in win score.",
+    )
+    run_amount_topside: float = Field(
+        default=1.3,
+        ge=0,
+        description="Run-type multiplier for topside victories.",
+    )
+    run_amount_bottomside: float = Field(
+        default=1.0,
+        ge=0,
+        description="Run-type multiplier for bottomside victories.",
     )
 
 
@@ -253,6 +263,10 @@ class RunRecord(BaseModel):
     boons: list[str] = Field(default_factory=list)
     notes: str | None = None
     fear: int = Field(default=0, ge=0, le=99)
+    computed_win_score: float = Field(
+        ...,
+        description="Raw win score at submission time (display as round(score * 100)).",
+    )
     created_at: str
 
     @field_validator("fear", mode="before")
@@ -359,16 +373,45 @@ class FearAnalytics(BaseModel):
     highest_max_fear_user: FearUserRow | None
 
 
-class WeightedVictoryUserRow(BaseModel):
+class WinScoreLeaderboardSettings(BaseModel):
+    fear_weight: float
+    run_amount_topside: float
+    run_amount_bottomside: float
+
+
+class WinScoreLeaderboardUserRow(BaseModel):
     user_id: str
     display_name: str
-    weighted_total: float
+    run_count: int
+    avg_display_points: float
+    max_display_points: int
+    display_points_total: int
 
 
-class WeightedVictoryAnalytics(BaseModel):
-    multiplier: float
-    total_weighted_score: float
-    by_user: list[WeightedVictoryUserRow]
+class WinScoreLeaderboardAnalytics(BaseModel):
+    settings: WinScoreLeaderboardSettings
+    grand_total_display_points: int
+    avg_score: float
+    max_single_display_points: int
+    max_score_user_id: str | None
+    max_score_display_name: str | None
+    avg_score_topside: float
+    avg_score_bottomside: float
+    max_score_topside: int
+    max_score_bottomside: int
+    score_buckets: dict[str, int]
+    by_user: list[WinScoreLeaderboardUserRow]
+    highest_avg_score_user: WinScoreLeaderboardUserRow | None
+    highest_max_score_user: WinScoreLeaderboardUserRow | None
+
+
+class UserWinScoreStackedRow(BaseModel):
+    """All-time display points per side for stacked bar chart (not date-filtered)."""
+
+    user_id: str
+    display_name: str
+    topside_display_points: int
+    bottomside_display_points: int
 
 
 class Analytics(BaseModel):
@@ -381,7 +424,8 @@ class Analytics(BaseModel):
     users: list[UserAnalytics]
     extra_metrics: ExtraAnalytics
     fear: FearAnalytics
-    weighted_victories: WeightedVictoryAnalytics
+    win_score_leaderboard: WinScoreLeaderboardAnalytics
+    win_score_stacked_by_user: list[UserWinScoreStackedRow]
     recent_runs: list[RunRecord]
 
 

@@ -79,6 +79,14 @@ function fearIconUrl() {
     return state.config?.fear?.image_url || DEFAULT_FEAR_ICON_URL;
 }
 
+function runDisplayPoints(run) {
+    const raw = Number(run?.computed_win_score);
+    if (!Number.isFinite(raw)) {
+        return "—";
+    }
+    return String(Math.round(raw * 100));
+}
+
 async function refreshAnalytics(dateRangeDays) {
     const analytics = await fetchJson(`/api/analytics?date_range_days=${dateRangeDays}`);
     state.analytics = analytics;
@@ -171,11 +179,16 @@ function renderAnalytics(analytics) {
                     <button id="analytics-range-apply" type="button">Apply</button>
                 </div>
                 ${renderLineChart(analytics)}
+                ${renderWinScoreStackedByUser(analytics)}
             `,
             "wide-card",
         ),
         analyticsCard("Total Victories", `<p class="score">${analytics.total_runs}</p>`),
         analyticsCard("Quick Stats", renderExtraMetrics(analytics.extra_metrics)),
+        analyticsCard(
+            "Win Score Leaderboard",
+            renderWinScoreLeaderboard(analytics.win_score_leaderboard),
+        ),
         analyticsCard("Fear", renderFearAnalytics(analytics.fear)),
         analyticsCard(
             "Victories by Realm",
@@ -220,6 +233,7 @@ function renderRecentRuns(runs) {
                     </div>
                     <div class="muted">
                         ${renderNamedAsset(run.weapon, weaponByName)} · ${formatDate(run.created_at)}
+                        · Score ${runDisplayPoints(run)}
                     </div>
                     ${
                         Number(run.fear) > 0
@@ -668,6 +682,203 @@ function renderLineChart(analytics) {
     `;
 }
 
+function winScoreBarBottomPath(x, w, botTop, baselineY, rMax) {
+    const r = Math.min(rMax, w / 2, Math.max(0, (baselineY - botTop) / 2 - 0.01));
+    if (r < 0.5) {
+        return `M ${x} ${botTop} L ${x + w} ${botTop} L ${x + w} ${baselineY} L ${x} ${baselineY} Z`;
+    }
+    return `M ${x} ${botTop} L ${x + w} ${botTop} L ${x + w} ${baselineY - r} A ${r} ${r} 0 0 1 ${x + w - r} ${baselineY} L ${x + r} ${baselineY} A ${r} ${r} 0 0 1 ${x} ${baselineY - r} L ${x} ${botTop} Z`;
+}
+
+function winScoreBarTopPath(x, w, topY, joinY, rMax) {
+    const r = Math.min(rMax, w / 2, Math.max(0, (joinY - topY) / 2 - 0.01));
+    if (r < 0.5) {
+        return `M ${x} ${topY} L ${x + w} ${topY} L ${x + w} ${joinY} L ${x} ${joinY} Z`;
+    }
+    return `M ${x + r} ${topY} A ${r} ${r} 0 0 1 ${x} ${topY + r} L ${x} ${joinY} L ${x + w} ${joinY} L ${x + w} ${topY + r} A ${r} ${r} 0 0 1 ${x + w - r} ${topY} L ${x + r} ${topY} Z`;
+}
+
+function winScoreBarTopSoloPath(x, w, topY, baselineY, rMax) {
+    const r = Math.min(rMax, w / 2, Math.max(0, (baselineY - topY) / 2 - 0.01));
+    if (r < 0.5) {
+        return `M ${x} ${topY} L ${x + w} ${topY} L ${x + w} ${baselineY} L ${x} ${baselineY} Z`;
+    }
+    return `M ${x + r} ${topY} A ${r} ${r} 0 0 1 ${x} ${topY + r} L ${x} ${baselineY} L ${x + w} ${baselineY} L ${x + w} ${topY + r} A ${r} ${r} 0 0 1 ${x + w - r} ${topY} L ${x + r} ${topY} Z`;
+}
+
+function renderWinScoreStackedByUser(analytics) {
+    const rows = analytics.win_score_stacked_by_user || [];
+    const caption =
+        "Win score totals by player — all-time cumulative display points (not affected by the date range above).";
+
+    if (!rows.length) {
+        return `
+            <div class="win-score-stack-section">
+                <p class="muted win-score-stack-caption">${escapeHtml(caption)}</p>
+                <p class="muted">No runs yet.</p>
+            </div>
+        `;
+    }
+
+    const width = 760;
+    const height = 312;
+    const padding = { top: 22, right: 18, bottom: 44, left: 46 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const baselineY = padding.top + chartHeight;
+
+    const totals = rows.map(
+        (r) => r.topside_display_points + r.bottomside_display_points,
+    );
+    const maxTotal = Math.max(1, ...totals);
+
+    const bottomFill = "var(--violet)";
+    const topFill = "var(--gold)";
+    const n = rows.length;
+    const gap = Math.min(14, Math.max(6, Math.floor(chartWidth / (n * 8))));
+    const barWidth = Math.max(
+        16,
+        (chartWidth - gap * (n + 1)) / n,
+    );
+
+    const gridLines = [0, 0.25, 0.5, 0.75, 1]
+        .map((ratio) => {
+            const y = padding.top + chartHeight - chartHeight * ratio;
+            const tickVal = Math.round(maxTotal * ratio);
+            return `
+                <line
+                    class="chart-grid win-score-v-grid"
+                    x1="${padding.left}"
+                    y1="${y}"
+                    x2="${width - padding.right}"
+                    y2="${y}"
+                ></line>
+                <text
+                    class="chart-axis-label win-score-v-axis-label"
+                    x="${padding.left - 8}"
+                    y="${y + 4}"
+                    text-anchor="end"
+                >${tickVal}</text>
+            `;
+        })
+        .join("");
+
+    const bars = rows
+        .map((row, index) => {
+            const botPts = row.bottomside_display_points;
+            const topPts = row.topside_display_points;
+            const totalPts = botPts + topPts;
+            const totalBarH =
+                maxTotal > 0 ? (totalPts / maxTotal) * chartHeight : 0;
+            let botH = 0;
+            let topH = 0;
+            if (totalPts > 0) {
+                botH = (botPts / totalPts) * totalBarH;
+                topH = (topPts / totalPts) * totalBarH;
+            }
+            const x = padding.left + gap + index * (barWidth + gap);
+            const rx = Math.min(6, barWidth / 2);
+            const botY = baselineY - botH;
+            const topY = baselineY - botH - topH;
+
+            let shapes = "";
+            if (botH > 0 && topH > 0) {
+                const db = winScoreBarBottomPath(x, barWidth, botY, baselineY, rx);
+                const dt = winScoreBarTopPath(x, barWidth, topY, botY, rx);
+                shapes = `
+                    <path class="win-score-v-segment win-score-v-bottom" fill="${bottomFill}" d="${db}"></path>
+                    <path class="win-score-v-segment win-score-v-top" fill="${topFill}" d="${dt}"></path>`;
+            } else if (botH > 0) {
+                const db = winScoreBarBottomPath(x, barWidth, botY, baselineY, rx);
+                shapes = `<path class="win-score-v-segment win-score-v-bottom" fill="${bottomFill}" d="${db}"></path>`;
+            } else if (topH > 0) {
+                const dt = winScoreBarTopSoloPath(x, barWidth, topY, baselineY, rx);
+                shapes = `<path class="win-score-v-segment win-score-v-top" fill="${topFill}" d="${dt}"></path>`;
+            }
+
+            const minSegLabelH = 16;
+            const botLabel =
+                botH >= minSegLabelH
+                    ? `<text
+                    class="win-score-v-seg-label win-score-v-seg-label--bottom"
+                    x="${x + barWidth / 2}"
+                    y="${botY + botH / 2}"
+                    text-anchor="middle"
+                    dominant-baseline="middle"
+                >${botPts}</text>`
+                    : "";
+            const topLabel =
+                topH >= minSegLabelH
+                    ? `<text
+                    class="win-score-v-seg-label win-score-v-seg-label--top"
+                    x="${x + barWidth / 2}"
+                    y="${topY + topH / 2}"
+                    text-anchor="middle"
+                    dominant-baseline="middle"
+                >${topPts}</text>`
+                    : "";
+
+            const label =
+                row.display_name.length > 12
+                    ? `${escapeHtml(row.display_name.slice(0, 11))}…`
+                    : escapeHtml(row.display_name);
+
+            return `
+                ${shapes}
+                ${botLabel}
+                ${topLabel}
+                <text
+                    class="win-score-v-x-label"
+                    x="${x + barWidth / 2}"
+                    y="${height - 16}"
+                    text-anchor="middle"
+                >${label}</text>
+            `;
+        })
+        .join("");
+
+    return `
+        <div class="win-score-stack-section">
+            <p class="muted win-score-stack-caption">${escapeHtml(caption)}</p>
+            <div class="chart-wrap win-score-stack-wrap">
+                <svg
+                    class="win-score-stacked-chart win-score-stacked-chart--vertical"
+                    viewBox="0 0 ${width} ${height}"
+                    role="img"
+                >
+                    <title>All-time win score by player, topside vs bottomside</title>
+                    ${gridLines}
+                    <line
+                        class="chart-axis"
+                        x1="${padding.left}"
+                        y1="${padding.top}"
+                        x2="${padding.left}"
+                        y2="${baselineY}"
+                    ></line>
+                    <line
+                        class="chart-axis"
+                        x1="${padding.left}"
+                        y1="${baselineY}"
+                        x2="${width - padding.right}"
+                        y2="${baselineY}"
+                    ></line>
+                    ${bars}
+                </svg>
+            </div>
+            <div class="chart-legend win-score-stack-legend">
+                <span class="win-score-stack-legend-item">
+                    <i class="win-score-swatch" style="background: ${bottomFill}"></i>
+                    Bottomside sum
+                </span>
+                <span class="win-score-stack-legend-item">
+                    <i class="win-score-swatch" style="background: ${topFill}"></i>
+                    Topside sum
+                </span>
+            </div>
+        </div>
+    `;
+}
+
 function renderVictoryBarChart(values, assetMap = new Map()) {
     const entries = Object.entries(values).sort((a, b) => b[1] - a[1]);
     if (!entries.length) {
@@ -770,6 +981,66 @@ function renderFearAnalytics(fear) {
             <div><span>Highest avg fear</span><strong>${avgLeader}</strong></div>
             <div><span>Highest max fear</span><strong>${maxLeader}</strong></div>
             <div><span>Distribution</span><strong>${bucketsText}</strong></div>
+        </div>
+    `;
+}
+
+function renderWinScoreLeaderboard(wsl) {
+    if (!wsl || !wsl.by_user) {
+        return '<p class="muted">No leaderboard data.</p>';
+    }
+
+    const avgLeader = wsl.highest_avg_score_user
+        ? `${escapeHtml(wsl.highest_avg_score_user.display_name)} (avg ${wsl.highest_avg_score_user.avg_display_points})`
+        : "—";
+    const maxLeader = wsl.highest_max_score_user
+        ? `${escapeHtml(wsl.highest_max_score_user.display_name)} (max ${wsl.highest_max_score_user.max_display_points})`
+        : "—";
+    const bucketParts = Object.entries(wsl.score_buckets || {}).map(
+        ([label, count]) => `${escapeHtml(label)}: ${count}`,
+    );
+    const bucketsText = bucketParts.length ? bucketParts.join(" · ") : "—";
+
+    const highestSingle =
+        wsl.max_score_display_name != null && wsl.max_score_display_name !== ""
+            ? `${wsl.max_single_display_points} (${escapeHtml(wsl.max_score_display_name)})`
+            : String(wsl.max_single_display_points ?? "—");
+
+    const totalsRows = wsl.by_user
+        .map(
+            (u) => `
+                <div>
+                    <span>${escapeHtml(u.display_name)}</span>
+                    <strong>${u.display_points_total}</strong>
+                </div>
+            `,
+        )
+        .join("");
+    const s = wsl.settings || {};
+    return `
+        <div class="metric-list fear-analytics win-score-analytics">
+            <div class="fear-analytics-title win-score-analytics-title">
+                <span class="win-score-analytics-mark" aria-hidden="true">★</span>
+                <span>Win Score Leaderboard</span>
+            </div>
+            <div><span>Average score (all runs)</span><strong>${wsl.avg_score}</strong></div>
+            <div><span>Highest single score</span><strong>${highestSingle}</strong></div>
+            <div><span>Highest max score</span><strong>${maxLeader}</strong></div>
+            <div><span>Highest avg score</span><strong>${avgLeader}</strong></div>
+            <div><span>Avg score · Topside</span><strong>${wsl.avg_score_topside}</strong></div>
+            <div><span>Avg score · Bottomside</span><strong>${wsl.avg_score_bottomside}</strong></div>
+            <div><span>Max score · Topside</span><strong>${wsl.max_score_topside}</strong></div>
+            <div><span>Max score · Bottomside</span><strong>${wsl.max_score_bottomside}</strong></div>
+            <div><span>Score distribution</span><strong>${bucketsText}</strong></div>
+            <p class="muted win-score-totals-label">Totals by player</p>
+            ${totalsRows}
+            <div class="muted win-score-settings-footnote">
+                Display points use stored per-run scores (×100). Weights:
+                fear ${escapeHtml(String(s.fear_weight ?? ""))},
+                topside ${escapeHtml(String(s.run_amount_topside ?? ""))},
+                bottomside ${escapeHtml(String(s.run_amount_bottomside ?? ""))}.
+                Grand total: ${wsl.grand_total_display_points}.
+            </div>
         </div>
     `;
 }

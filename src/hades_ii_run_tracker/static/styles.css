@@ -487,6 +487,66 @@ button:disabled {
     margin-top: 0.35rem;
 }
 
+.win-score-stack-section {
+    margin-top: 1.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.win-score-stack-caption {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.win-score-stack-wrap {
+    overflow-x: auto;
+}
+
+.win-score-stack-legend {
+    margin-top: 0.65rem;
+}
+
+.win-score-stack-legend-item {
+    font-size: 0.82rem;
+    color: var(--muted);
+}
+
+.win-score-swatch {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 4px;
+}
+
+.win-score-stacked-chart--vertical .chart-grid {
+    stroke: rgba(214, 169, 76, 0.12);
+}
+
+.win-score-v-axis-label {
+    fill: var(--muted);
+    font-size: 0.68rem;
+}
+
+.win-score-v-x-label {
+    fill: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.win-score-v-seg-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    pointer-events: none;
+}
+
+.win-score-v-seg-label--bottom {
+    fill: rgba(248, 234, 208, 0.96);
+}
+
+.win-score-v-seg-label--top {
+    fill: rgba(18, 13, 19, 0.92);
+}
+
 .bar-track {
     fill: rgba(255, 255, 255, 0.08);
 }
@@ -531,6 +591,32 @@ button:disabled {
     font-size: 0.95rem;
     font-weight: 600;
     text-transform: none;
+}
+
+.win-score-analytics-title {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.win-score-analytics-title span:last-child {
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-transform: none;
+}
+
+.win-score-analytics-mark {
+    color: var(--gold);
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.win-score-totals-label {
+    margin: 0.35rem 0 0;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .bar-row {

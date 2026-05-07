@@ -2,6 +2,7 @@ version: "3.7"
 
 services:
   gamedaybot:
+    # Do not set user: — entrypoint must run as root to chown + setpriv to PUID/PGID.
     build:
       context: .
     restart: always

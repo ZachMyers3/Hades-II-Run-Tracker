@@ -41,8 +41,14 @@ class AppSettingsRow(Base):
     analytics_date_range_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=7
     )
-    weighted_victory_fear_multiplier: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0, server_default="0"
+    fear_weight: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0, server_default="1"
+    )
+    run_amount_topside: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.3, server_default="1.3"
+    )
+    run_amount_bottomside: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0, server_default="1"
     )
 
 
@@ -59,6 +65,7 @@ class RunRow(Base):
     fear: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    computed_win_score: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     boon_links: Mapped[list["RunBoonRow"]] = relationship(
         "RunBoonRow",

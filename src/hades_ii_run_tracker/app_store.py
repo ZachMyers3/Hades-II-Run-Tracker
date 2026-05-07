@@ -24,6 +24,7 @@ from .models import (
     default_fear_option,
 )
 from .orm_models import AppSettingsRow, OptionRow, RunBoonRow, RunRow, UserRow
+from .scoring import compute_win_score
 
 
 class SqliteAppStore:
@@ -54,7 +55,9 @@ class SqliteAppStore:
                                 "HADES_ADMIN_PASSWORD", ""
                             ),
                             analytics_date_range_days=7,
-                            weighted_victory_fear_multiplier=0,
+                            fear_weight=1.0,
+                            run_amount_topside=1.3,
+                            run_amount_bottomside=1.0,
                         )
                     )
 
@@ -133,6 +136,7 @@ class SqliteAppStore:
                     row.weapon = updated_run.weapon
                     row.notes = updated_run.notes
                     row.fear = updated_run.fear
+                    row.computed_win_score = updated_run.computed_win_score
                     row.created_at = updated_run.created_at
                     for position, name in enumerate(updated_run.boons):
                         session.add(
@@ -143,6 +147,19 @@ class SqliteAppStore:
                             )
                         )
                     return updated_run
+
+    def recalculate_all_win_scores(self, analytics: AnalyticsSettings) -> int:
+        """Recompute stored scores for every run using the given weights. Returns rows updated."""
+        with self._lock:
+            with self._Session() as session:
+                with session.begin():
+                    stmt = select(RunRow).options(selectinload(RunRow.boon_links))
+                    rows = session.scalars(stmt).all()
+                    for row in rows:
+                        row.computed_win_score = compute_win_score(
+                            row.side, row.fear, analytics
+                        )
+                    return len(rows)
 
     def delete_run(self, run_id: str) -> bool:
         with self._lock:
@@ -228,9 +245,9 @@ class SqliteAppStore:
             fear=fear_opt,
             analytics=AnalyticsSettings(
                 date_range_days=settings.analytics_date_range_days,
-                weighted_victory_fear_multiplier=float(
-                    settings.weighted_victory_fear_multiplier
-                ),
+                fear_weight=float(settings.fear_weight),
+                run_amount_topside=float(settings.run_amount_topside),
+                run_amount_bottomside=float(settings.run_amount_bottomside),
             ),
             admin=AdminSettings(password=settings.admin_password),
         )
@@ -297,15 +314,17 @@ class SqliteAppStore:
                     id=1,
                     admin_password=admin_password,
                     analytics_date_range_days=analytics.date_range_days,
-                    weighted_victory_fear_multiplier=analytics.weighted_victory_fear_multiplier,
+                    fear_weight=analytics.fear_weight,
+                    run_amount_topside=analytics.run_amount_topside,
+                    run_amount_bottomside=analytics.run_amount_bottomside,
                 )
             )
         else:
             row.admin_password = admin_password
             row.analytics_date_range_days = analytics.date_range_days
-            row.weighted_victory_fear_multiplier = (
-                analytics.weighted_victory_fear_multiplier
-            )
+            row.fear_weight = analytics.fear_weight
+            row.run_amount_topside = analytics.run_amount_topside
+            row.run_amount_bottomside = analytics.run_amount_bottomside
 
     def _replace_options(
         self,
@@ -389,6 +408,7 @@ class SqliteAppStore:
             boons=boons,
             notes=row.notes,
             fear=row.fear,
+            computed_win_score=float(row.computed_win_score),
             created_at=row.created_at,
         )
 
@@ -401,6 +421,7 @@ class SqliteAppStore:
             weapon=run.weapon,
             notes=run.notes,
             fear=run.fear,
+            computed_win_score=run.computed_win_score,
             created_at=run.created_at,
         )
         for position, name in enumerate(run.boons):

@@ -1,6 +1,6 @@
 import os
 import secrets
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from hmac import compare_digest
@@ -23,6 +23,7 @@ from .models import (
     AdminUserCreate,
     AdminUserUpdate,
     Analytics,
+    AnalyticsSettings,
     ConfigUser,
     DateBucket,
     ExtraAnalytics,
@@ -34,9 +35,12 @@ from .models import (
     UserAnalytics,
     UserExtraAnalytics,
     UserMetric,
-    WeightedVictoryAnalytics,
-    WeightedVictoryUserRow,
+    UserWinScoreStackedRow,
+    WinScoreLeaderboardAnalytics,
+    WinScoreLeaderboardSettings,
+    WinScoreLeaderboardUserRow,
 )
+from .scoring import compute_win_score, display_points
 
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -242,6 +246,11 @@ def create_app(
             boons=payload.boons,
             notes=payload.notes,
             fear=payload.fear,
+            computed_win_score=compute_win_score(
+                payload.side,
+                payload.fear,
+                config.analytics,
+            ),
             created_at=existing_run.created_at,
         )
         saved_run = web_app.state.store.update_run(run_id, updated_run)
@@ -326,7 +335,10 @@ def create_app(
             )
         try:
             config = TrackerConfig.model_validate(payload.config)
-            runs = [RunRecord.model_validate(run) for run in payload.runs]
+            runs = [
+                _run_record_from_import_dict(run, config.analytics)
+                for run in payload.runs
+            ]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
@@ -338,6 +350,14 @@ def create_app(
             "imported_runs": len(runs),
             "replaced": True,
         }
+
+    @web_app.post("/api/admin/recalculate-scores")
+    def admin_recalculate_scores(
+        x_admin_password: str | None = Header(default=None),
+    ) -> dict[str, int]:
+        config = _require_admin(web_app, x_admin_password)
+        updated = web_app.state.store.recalculate_all_win_scores(config.analytics)
+        return {"runs_updated": updated}
 
     @web_app.get("/api/runs", response_model=list[RunRecord])
     def list_runs() -> list[RunRecord]:
@@ -355,6 +375,7 @@ def create_app(
             [weapon.name for weapon in config.weapons],
             [boon.name for boon in config.boons],
         )
+        fear_value = _fear_for_create(payload)
         run = RunRecord(
             id=str(uuid4()),
             user_id=user.id,
@@ -362,7 +383,12 @@ def create_app(
             weapon=payload.weapon,
             boons=payload.boons,
             notes=payload.notes,
-            fear=_fear_for_create(payload),
+            fear=fear_value,
+            computed_win_score=compute_win_score(
+                payload.side,
+                fear_value,
+                config.analytics,
+            ),
             created_at=_utc_now(),
         )
         return web_app.state.store.append_run(run)
@@ -384,6 +410,7 @@ def create_app(
             [weapon.name for weapon in config.weapons],
             [boon.name for boon in config.boons],
         )
+        fear_value = _fear_for_owner_update(payload, existing_run)
         updated_run = RunRecord(
             id=existing_run.id,
             user_id=existing_run.user_id,
@@ -391,7 +418,12 @@ def create_app(
             weapon=payload.weapon,
             boons=payload.boons,
             notes=payload.notes,
-            fear=_fear_for_owner_update(payload, existing_run),
+            fear=fear_value,
+            computed_win_score=compute_win_score(
+                payload.side,
+                fear_value,
+                config.analytics,
+            ),
             created_at=existing_run.created_at,
         )
         saved_run = web_app.state.store.update_run(run_id, updated_run)
@@ -474,10 +506,14 @@ def create_app(
                 daily_runs,
             ),
             fear=_build_fear_analytics(runs, config.users),
-            weighted_victories=_build_weighted_victory_analytics(
+            win_score_leaderboard=_build_win_score_leaderboard(
                 runs,
                 config.users,
-                config.analytics.weighted_victory_fear_multiplier,
+                config.analytics,
+            ),
+            win_score_stacked_by_user=_build_win_score_stacked_by_user(
+                runs,
+                config.users,
             ),
             recent_runs=_sorted_runs(runs)[:10],
         )
@@ -536,6 +572,22 @@ def _load_runtime_config(web_app: FastAPI):
         return web_app.state.store.load_config()
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _run_record_from_import_dict(
+    raw: dict,
+    analytics: AnalyticsSettings,
+) -> RunRecord:
+    data = dict(raw)
+    if "computed_win_score" not in data:
+        fear_raw = data.get("fear", 0)
+        fear_val = int(fear_raw) if fear_raw is not None else 0
+        data["computed_win_score"] = compute_win_score(
+            data["side"],
+            fear_val,
+            analytics,
+        )
+    return RunRecord.model_validate(data)
 
 
 def _fear_for_create(payload: RunCreate) -> int:
@@ -832,37 +884,220 @@ def _build_fear_analytics(
     )
 
 
-def _weighted_run_score(fear: int, multiplier: float) -> float:
-    return 1.0 + fear * multiplier
+def _run_display_points(run: RunRecord) -> int:
+    return display_points(run.computed_win_score)
 
 
-def _build_weighted_victory_analytics(
+def _build_win_score_stacked_by_user(
     runs: list[RunRecord],
     users: list[ConfigUser],
-    multiplier: float,
-) -> WeightedVictoryAnalytics:
-    mult = float(multiplier)
-    totals_by_user = defaultdict(float)
-    grand = 0.0
-    for run in runs:
-        score = _weighted_run_score(run.fear, mult)
-        grand += score
-        totals_by_user[run.user_id] += score
-
-    rows = [
-        WeightedVictoryUserRow(
-            user_id=user.id,
-            display_name=user.display_name,
-            weighted_total=round(totals_by_user[user.id], 4),
+) -> list[UserWinScoreStackedRow]:
+    """Cumulative display points by side per user (all runs; ignores date range)."""
+    rows: list[UserWinScoreStackedRow] = []
+    for user in users:
+        user_runs = [r for r in runs if r.user_id == user.id]
+        topside = sum(
+            _run_display_points(r) for r in user_runs if r.side == "topside"
         )
-        for user in users
-    ]
-    rows.sort(key=lambda r: (-r.weighted_total, r.display_name))
+        bottomside = sum(
+            _run_display_points(r) for r in user_runs if r.side == "bottomside"
+        )
+        rows.append(
+            UserWinScoreStackedRow(
+                user_id=user.id,
+                display_name=user.display_name,
+                topside_display_points=topside,
+                bottomside_display_points=bottomside,
+            )
+        )
+    rows.sort(
+        key=lambda r: (
+            -(r.topside_display_points + r.bottomside_display_points),
+            r.display_name,
+        )
+    )
+    return rows
 
-    return WeightedVictoryAnalytics(
-        multiplier=mult,
-        total_weighted_score=round(grand, 4),
+
+def _best_run_by_display_points_then_time(
+    runs: list[RunRecord],
+) -> RunRecord | None:
+    """Highest display points; ties broken by earlier `created_at`."""
+    if not runs:
+        return None
+    return sorted(
+        runs,
+        key=lambda r: (-_run_display_points(r), r.created_at),
+    )[0]
+
+
+def _bucket_display_points(d: int) -> str:
+    if d < 130:
+        return "<130"
+    if d <= 169:
+        return "130-169"
+    if d <= 209:
+        return "170-209"
+    return "210+"
+
+
+def _build_win_score_leaderboard(
+    runs: list[RunRecord],
+    users: list[ConfigUser],
+    settings: AnalyticsSettings,
+) -> WinScoreLeaderboardAnalytics:
+    common_opts = dict(
+        settings=WinScoreLeaderboardSettings(
+            fear_weight=float(settings.fear_weight),
+            run_amount_topside=float(settings.run_amount_topside),
+            run_amount_bottomside=float(settings.run_amount_bottomside),
+        ),
+    )
+
+    n = len(runs)
+    if n == 0:
+        empty_rows = [
+            WinScoreLeaderboardUserRow(
+                user_id=user.id,
+                display_name=user.display_name,
+                run_count=0,
+                avg_display_points=0.0,
+                max_display_points=0,
+                display_points_total=0,
+            )
+            for user in users
+        ]
+        return WinScoreLeaderboardAnalytics(
+            **common_opts,
+            grand_total_display_points=0,
+            avg_score=0.0,
+            max_single_display_points=0,
+            max_score_user_id=None,
+            max_score_display_name=None,
+            avg_score_topside=0.0,
+            avg_score_bottomside=0.0,
+            max_score_topside=0,
+            max_score_bottomside=0,
+            score_buckets={
+                "<130": 0,
+                "130-169": 0,
+                "170-209": 0,
+                "210+": 0,
+            },
+            by_user=empty_rows,
+            highest_avg_score_user=None,
+            highest_max_score_user=None,
+        )
+
+    dp_vals = [_run_display_points(r) for r in runs]
+    grand = sum(dp_vals)
+    avg_score = round(grand / n, 2)
+
+    best_run = sorted(
+        runs,
+        key=lambda r: (-_run_display_points(r), r.created_at),
+    )[0]
+    max_single = _run_display_points(best_run)
+    max_owner = next(
+        (u for u in users if u.id == best_run.user_id),
+        None,
+    )
+
+    top_runs = [r for r in runs if r.side == "topside"]
+    bot_runs = [r for r in runs if r.side == "bottomside"]
+    avg_top = (
+        round(sum(_run_display_points(r) for r in top_runs) / len(top_runs), 2)
+        if top_runs
+        else 0.0
+    )
+    avg_bot = (
+        round(sum(_run_display_points(r) for r in bot_runs) / len(bot_runs), 2)
+        if bot_runs
+        else 0.0
+    )
+
+    best_top = _best_run_by_display_points_then_time(top_runs)
+    best_bot = _best_run_by_display_points_then_time(bot_runs)
+    max_top = _run_display_points(best_top) if best_top is not None else 0
+    max_bot = _run_display_points(best_bot) if best_bot is not None else 0
+
+    buckets = {"<130": 0, "130-169": 0, "170-209": 0, "210+": 0}
+    for d in dp_vals:
+        buckets[_bucket_display_points(d)] += 1
+
+    rows: list[WinScoreLeaderboardUserRow] = []
+    for user in users:
+        user_runs = [r for r in runs if r.user_id == user.id]
+        cnt = len(user_runs)
+        if cnt == 0:
+            rows.append(
+                WinScoreLeaderboardUserRow(
+                    user_id=user.id,
+                    display_name=user.display_name,
+                    run_count=0,
+                    avg_display_points=0.0,
+                    max_display_points=0,
+                    display_points_total=0,
+                )
+            )
+        else:
+            u_pts = [_run_display_points(r) for r in user_runs]
+            rows.append(
+                WinScoreLeaderboardUserRow(
+                    user_id=user.id,
+                    display_name=user.display_name,
+                    run_count=cnt,
+                    avg_display_points=round(sum(u_pts) / cnt, 2),
+                    max_display_points=max(u_pts),
+                    display_points_total=sum(u_pts),
+                )
+            )
+
+    rows.sort(key=lambda r: (-r.display_points_total, r.display_name))
+
+    eligible = [row for row in rows if row.run_count > 0]
+    highest_avg = (
+        max(
+            eligible,
+            key=lambda row: (
+                row.avg_display_points,
+                row.run_count,
+                row.display_name,
+            ),
+        )
+        if eligible
+        else None
+    )
+    highest_max = (
+        max(
+            eligible,
+            key=lambda row: (
+                row.max_display_points,
+                row.avg_display_points,
+                row.display_name,
+            ),
+        )
+        if eligible
+        else None
+    )
+
+    return WinScoreLeaderboardAnalytics(
+        **common_opts,
+        grand_total_display_points=grand,
+        avg_score=avg_score,
+        max_single_display_points=max_single,
+        max_score_user_id=best_run.user_id,
+        max_score_display_name=(
+            max_owner.display_name if max_owner else best_run.user_id
+        ),
+        avg_score_topside=avg_top,
+        avg_score_bottomside=avg_bot,
+        max_score_topside=max_top,
+        max_score_bottomside=max_bot,
+        score_buckets=buckets,
         by_user=rows,
+        highest_avg_score_user=highest_avg,
+        highest_max_score_user=highest_max,
     )
 
 

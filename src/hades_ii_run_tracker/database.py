@@ -28,9 +28,17 @@ def create_db_engine(url: str | None = None) -> Engine:
     resolved = url or get_database_url()
     parsed = make_url(resolved)
     if parsed.drivername == "sqlite" and parsed.database:
-        db_path = Path(parsed.database)
+        raw = parsed.database
+        db_path = Path(raw)
         if not db_path.is_absolute():
-            db_path = Path.cwd() / db_path
+            joined = Path.cwd() / db_path
+            # sqlite:///app/data/foo (three slashes after sqlite:) is parsed as a
+            # relative path "app/data/foo". With Docker WORKDIR /app that becomes
+            # /app/app/data/foo and mkdir fails for non-root. Treat as absolute.
+            if str(joined).startswith("/app/app/"):
+                db_path = Path("/") / raw
+            else:
+                db_path = joined
         db_path.parent.mkdir(parents=True, exist_ok=True)
     return create_engine(
         resolved,

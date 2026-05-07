@@ -173,15 +173,27 @@ docker run --rm -p 8000:8000 `
   hades-ii-run-tracker
 ```
 
+SQLite in Docker uses an **absolute** path: `sqlite:////app/data/hades.sqlite`
+(four slashes). `sqlite:///app/data/...` is treated as relative to the process
+working directory and becomes `/app/app/data/...` when `WORKDIR` is `/app`.
+
 Mount `/app/data` so `hades.sqlite` (and any legacy `runs.json` used only for
 first-run bootstrap) persist. Mount `config.json` if you rely on automatic
 import from JSON when the database file is new and empty. Back up the SQLite
 file and export JSON backups from `/admin` if you care about the history.
 
-The container starts as root, creates or reuses the user/group from `PUID` and
-`PGID`, updates ownership for `/app/config` and `/app/data`, then runs the app as
-that user. Set those values to the host user that owns your mounted files when
-Docker bind mounts have read/write permission issues.
+The image **must start as root** (the default): the entrypoint runs `chown` on
+`/app/config` and `/app/data`, then starts the app with **`setpriv`** (from
+`util-linux`) as `PUID:PGID` — same role as `gosu`, without passwd-based edge cases.
+Set **`HADES_ENTRYPOINT_DEBUG=1`** to log the intended UID/GID before the drop.
+If you set **`user:`** in Compose, **Kubernetes `runAsUser`**, or anything that
+makes the process non-root from the first exec, that step never runs — `PUID` /
+`PGID` are ignored and you may see permission errors on the mounts. Remove
+`user:` / `runAsUser` so the entrypoint can run as root, or `chown` the host
+`./data` (and config file) to match the UID the container uses.
+
+With **`PUID=0` and `PGID=0`**, the entrypoint skips `setpriv` and the app runs as
+root inside the container (simplest for permission debugging, weaker isolation).
 
 ## Admin Dashboard
 
